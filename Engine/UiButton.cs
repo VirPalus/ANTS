@@ -7,6 +7,9 @@ public class UiButton
     public Color BackgroundColor { get; }
     public Action OnClick { get; }
 
+    public float TextBaselineX;
+    public float TextBaselineY;
+
     public UiButton(Rectangle bounds, string label, Color backgroundColor, Action onClick)
     {
         Bounds = bounds;

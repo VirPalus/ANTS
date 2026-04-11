@@ -2,6 +2,8 @@ namespace ANTS;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using SkiaSharp;
+using SkiaSharp.Views.Desktop;
 
 public partial class Engine : Form
 {
@@ -42,16 +44,76 @@ public partial class Engine : Form
     private int _fps;
     private double _lastFrameMs;
 
+    private FastSKGLControl _skControl = null!;
+    private SKPaint _fillPaint = null!;
+    private SKPaint _strokePaint = null!;
+    private SKPaint _textPaint = null!;
+    private SKPicture _gridPicture = null!;
+    private SKPicture _buttonsPicture = null!;
+    private SKPicture? _hudPicture;
+    private SKPath _foodPath = null!;
+    private SKPath _nestPath = null!;
+    private SKFontMetrics _textMetrics;
+    private float _textHeight;
+
+    private readonly Stopwatch _hudStopwatch = new Stopwatch();
+    private const int HudUpdateIntervalMs = 50;
+
+    private SKColor _backgroundSkColor;
+    private SKColor _foodSkColor;
+    private SKColor _buttonBorderSkColor;
+
     public Engine()
     {
         InitializeComponent();
-        DoubleBuffered = true;
+
+        _fillPaint = new SKPaint();
+        _fillPaint.Style = SKPaintStyle.Fill;
+        _fillPaint.IsAntialias = false;
+
+        _strokePaint = new SKPaint();
+        _strokePaint.Style = SKPaintStyle.Stroke;
+        _strokePaint.IsAntialias = false;
+        _strokePaint.StrokeWidth = 1;
+
+        _textPaint = new SKPaint();
+        _textPaint.Style = SKPaintStyle.Fill;
+        _textPaint.IsAntialias = true;
+        _textPaint.Color = SKColors.White;
+        _textPaint.TextSize = 14;
+
+        _textMetrics = _textPaint.FontMetrics;
+        _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
+
+        _foodPath = new SKPath();
+        _nestPath = new SKPath();
+
+        _backgroundSkColor = new SKColor(BackColor.R, BackColor.G, BackColor.B);
+        _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
+        _buttonBorderSkColor = new SKColor(120, 120, 120);
+
+        _skControl = new FastSKGLControl();
+        _skControl.Dock = DockStyle.Fill;
+        _skControl.PaintSurface += OnSkPaintSurface;
+        _skControl.MouseDown += OnSkMouseDown;
+        _skControl.MouseMove += OnSkMouseMove;
+        _skControl.MouseUp += OnSkMouseUp;
+        Controls.Add(_skControl);
 
         InitializeWorld();
         RecalculateLayout();
 
         _fpsStopwatch.Start();
+        _hudStopwatch.Start();
         Application.Idle += OnApplicationIdle;
+    }
+
+    private void OnApplicationIdle(object? sender, EventArgs e)
+    {
+        while (IsApplicationIdle())
+        {
+            Tick();
+        }
     }
 
     private void InitializeWorld()
@@ -63,14 +125,73 @@ public partial class Engine : Form
         int cellsY = worldPixelHeight / CellSize;
 
         _world = new World(cellsX, cellsY);
+
+        RecordGridPicture();
     }
 
-    private void OnApplicationIdle(object? sender, EventArgs e)
+    private void RecordGridPicture()
     {
-        while (IsApplicationIdle())
+        if (_gridPicture != null)
         {
-            Tick();
+            _gridPicture.Dispose();
         }
+
+        int gridWidth = _world.Width * CellSize;
+        int gridHeight = _world.Height * CellSize;
+
+        int borderHalf = BorderThickness / 2;
+        SKRect cullRect = new SKRect(
+            -borderHalf,
+            -borderHalf,
+            gridWidth + borderHalf,
+            gridHeight + borderHalf);
+
+        SKPictureRecorder recorder = new SKPictureRecorder();
+        SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
+
+        using (SKPaint borderPaint = new SKPaint())
+        {
+            borderPaint.Style = SKPaintStyle.Stroke;
+            borderPaint.IsAntialias = false;
+            borderPaint.Color = new SKColor(128, 128, 128);
+            borderPaint.StrokeWidth = BorderThickness;
+
+            int borderX = -borderHalf;
+            int borderY = -borderHalf;
+            int borderWidth = gridWidth + BorderThickness;
+            int borderHeight = gridHeight + BorderThickness;
+            recordingCanvas.DrawRect(borderX, borderY, borderWidth, borderHeight, borderPaint);
+        }
+
+        using (SKPaint gridPaint = new SKPaint())
+        {
+            gridPaint.Style = SKPaintStyle.Stroke;
+            gridPaint.IsAntialias = false;
+            gridPaint.Color = new SKColor(45, 45, 45);
+            gridPaint.StrokeWidth = 1;
+
+            using (SKPath gridPath = new SKPath())
+            {
+                for (int x = 0; x <= _world.Width; x++)
+                {
+                    float lineX = x * CellSize + 0.5f;
+                    gridPath.MoveTo(lineX, 0);
+                    gridPath.LineTo(lineX, gridHeight);
+                }
+
+                for (int y = 0; y <= _world.Height; y++)
+                {
+                    float lineY = y * CellSize + 0.5f;
+                    gridPath.MoveTo(0, lineY);
+                    gridPath.LineTo(gridWidth, lineY);
+                }
+
+                recordingCanvas.DrawPath(gridPath, gridPaint);
+            }
+        }
+
+        _gridPicture = recorder.EndRecording();
+        recorder.Dispose();
     }
 
     private void Tick()
@@ -87,8 +208,13 @@ public partial class Engine : Form
             _fpsStopwatch.Restart();
         }
 
-        Invalidate();
-        Update();
+        if (_hudPicture == null || _hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
+        {
+            RecordHudPicture();
+            _hudStopwatch.Restart();
+        }
+
+        _skControl.RenderFrameDirect();
 
         long endTicks = Stopwatch.GetTimestamp();
         _lastFrameMs = (endTicks - startTicks) * 1000.0 / Stopwatch.Frequency;
@@ -98,7 +224,6 @@ public partial class Engine : Form
     {
         base.OnResize(e);
         RecalculateLayout();
-        Invalidate();
     }
 
     private void RecalculateLayout()
@@ -129,11 +254,76 @@ public partial class Engine : Form
 
         Rectangle addColonyBounds = new Rectangle(addColonyX, buttonY, ButtonWidth, ButtonHeight);
         UiButton addColonyButton = new UiButton(addColonyBounds, "Add Colony", buttonBackground, StartPlacingColony);
+        CacheButtonTextPosition(addColonyButton);
         _buttons.Add(addColonyButton);
 
         Rectangle addFoodBounds = new Rectangle(addFoodX, buttonY, ButtonWidth, ButtonHeight);
         UiButton addFoodButton = new UiButton(addFoodBounds, "Add Food", buttonBackground, StartPlacingFood);
+        CacheButtonTextPosition(addFoodButton);
         _buttons.Add(addFoodButton);
+
+        RecordButtonsPicture();
+    }
+
+    private void RecordButtonsPicture()
+    {
+        if (_buttonsPicture != null)
+        {
+            _buttonsPicture.Dispose();
+        }
+
+        SKRect cullRect = new SKRect(0, 0, ClientSize.Width, ClientSize.Height);
+
+        SKPictureRecorder recorder = new SKPictureRecorder();
+        SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
+
+        _strokePaint.Color = _buttonBorderSkColor;
+        _strokePaint.StrokeWidth = 1;
+
+        int buttonCount = _buttons.Count;
+        for (int i = 0; i < buttonCount; i++)
+        {
+            UiButton button = _buttons[i];
+            _fillPaint.Color = ToSkColor(button.BackgroundColor);
+            recordingCanvas.DrawRect(button.Bounds.X, button.Bounds.Y, button.Bounds.Width, button.Bounds.Height, _fillPaint);
+            recordingCanvas.DrawRect(button.Bounds.X, button.Bounds.Y, button.Bounds.Width - 1, button.Bounds.Height - 1, _strokePaint);
+            recordingCanvas.DrawText(button.Label, button.TextBaselineX, button.TextBaselineY, _textPaint);
+        }
+
+        _buttonsPicture = recorder.EndRecording();
+        recorder.Dispose();
+    }
+
+    private void RecordHudPicture()
+    {
+        if (_hudPicture != null)
+        {
+            _hudPicture.Dispose();
+        }
+
+        SKRect cullRect = new SKRect(0, 0, 400, 60);
+
+        SKPictureRecorder recorder = new SKPictureRecorder();
+        SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
+
+        float hudBaselineY1 = 4 - _textMetrics.Ascent;
+        float hudBaselineY2 = 22 - _textMetrics.Ascent;
+        float hudBaselineY3 = 40 - _textMetrics.Ascent;
+        recordingCanvas.DrawText("Frame: " + _frame, 8, hudBaselineY1, _textPaint);
+        recordingCanvas.DrawText("Frame time: " + _lastFrameMs.ToString("F3") + " ms", 8, hudBaselineY2, _textPaint);
+        recordingCanvas.DrawText("FPS: " + _fps, 8, hudBaselineY3, _textPaint);
+
+        _hudPicture = recorder.EndRecording();
+        recorder.Dispose();
+    }
+
+    private void CacheButtonTextPosition(UiButton button)
+    {
+        float textWidth = _textPaint.MeasureText(button.Label);
+        float labelTopX = button.Bounds.X + (button.Bounds.Width - textWidth) / 2;
+        float labelTopY = button.Bounds.Y + (button.Bounds.Height - _textHeight) / 2;
+        button.TextBaselineX = labelTopX;
+        button.TextBaselineY = labelTopY - _textMetrics.Ascent;
     }
 
     private void StartPlacingColony()
@@ -157,10 +347,8 @@ public partial class Engine : Form
         Cursor = Cursors.Default;
     }
 
-    protected override void OnMouseDown(MouseEventArgs e)
+    private void OnSkMouseDown(object? sender, MouseEventArgs e)
     {
-        base.OnMouseDown(e);
-
         if (e.Button == MouseButtons.Right)
         {
             CancelPlacing();
@@ -206,9 +394,8 @@ public partial class Engine : Form
         }
     }
 
-    protected override void OnMouseMove(MouseEventArgs e)
+    private void OnSkMouseMove(object? sender, MouseEventArgs e)
     {
-        base.OnMouseMove(e);
         _mouseX = e.X;
         _mouseY = e.Y;
 
@@ -218,10 +405,8 @@ public partial class Engine : Form
         }
     }
 
-    protected override void OnMouseUp(MouseEventArgs e)
+    private void OnSkMouseUp(object? sender, MouseEventArgs e)
     {
-        base.OnMouseUp(e);
-
         if (e.Button == MouseButtons.Left)
         {
             _isDrawingFood = false;
@@ -266,8 +451,15 @@ public partial class Engine : Form
         return true;
     }
 
-    private void DrawNest(Graphics graphics, Brush brush, int centerCellX, int centerCellY)
+    private static SKColor ToSkColor(Color color)
     {
+        return new SKColor(color.R, color.G, color.B, color.A);
+    }
+
+    private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
+    {
+        _nestPath.Reset();
+
         for (int dy = -NestRadius; dy <= NestRadius; dy++)
         {
             for (int dx = -NestRadius; dx <= NestRadius; dx++)
@@ -281,71 +473,52 @@ public partial class Engine : Form
                 int cellX = centerCellX + dx;
                 int cellY = centerCellY + dy;
 
-                int pixelX = _gridX + cellX * CellSize;
-                int pixelY = _gridY + cellY * CellSize;
+                float pixelX = _gridX + cellX * CellSize;
+                float pixelY = _gridY + cellY * CellSize;
 
-                graphics.FillRectangle(brush, pixelX, pixelY, CellSize, CellSize);
+                _nestPath.AddRect(new SKRect(pixelX, pixelY, pixelX + CellSize, pixelY + CellSize));
             }
         }
+
+        _fillPaint.Color = color;
+        canvas.DrawPath(_nestPath, _fillPaint);
     }
 
-    protected override void OnPaint(PaintEventArgs e)
+    private void OnSkPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
     {
-        base.OnPaint(e);
+        SKCanvas canvas = e.Surface.Canvas;
 
-        Graphics graphics = e.Graphics;
+        canvas.Clear(_backgroundSkColor);
 
-        int gridWidth = _world.Width * CellSize;
-        int gridHeight = _world.Height * CellSize;
+        canvas.Save();
+        canvas.Translate(_gridX, _gridY);
+        canvas.DrawPicture(_gridPicture);
+        canvas.Restore();
 
-        using (Pen borderPen = new Pen(Color.Gray, BorderThickness))
+        int foodCount = _world.FoodCount;
+        if (foodCount > 0)
         {
-            int borderX = _gridX - BorderThickness / 2;
-            int borderY = _gridY - BorderThickness / 2;
-            int borderWidth = gridWidth + BorderThickness;
-            int borderHeight = gridHeight + BorderThickness;
-            graphics.DrawRectangle(borderPen, borderX, borderY, borderWidth, borderHeight);
+            _foodPath.Reset();
+            Point[] foodCells = _world.FoodCells;
+            for (int i = 0; i < foodCount; i++)
+            {
+                int cellX = foodCells[i].X;
+                int cellY = foodCells[i].Y;
+                float pixelX = _gridX + cellX * CellSize;
+                float pixelY = _gridY + cellY * CellSize;
+                _foodPath.AddRect(new SKRect(pixelX, pixelY, pixelX + CellSize, pixelY + CellSize));
+            }
+
+            _fillPaint.Color = _foodSkColor;
+            canvas.DrawPath(_foodPath, _fillPaint);
         }
 
-        using (Pen gridPen = new Pen(Color.FromArgb(45, 45, 45)))
+        IReadOnlyList<Colony> colonies = _world.Colonies;
+        int colonyCount = colonies.Count;
+        for (int i = 0; i < colonyCount; i++)
         {
-            for (int x = 0; x <= _world.Width; x++)
-            {
-                int lineX = _gridX + x * CellSize;
-                graphics.DrawLine(gridPen, lineX, _gridY, lineX, _gridY + gridHeight);
-            }
-
-            for (int y = 0; y <= _world.Height; y++)
-            {
-                int lineY = _gridY + y * CellSize;
-                graphics.DrawLine(gridPen, _gridX, lineY, _gridX + gridWidth, lineY);
-            }
-        }
-
-        using (Brush foodBrush = new SolidBrush(FoodColor))
-        {
-            for (int cellX = 0; cellX < _world.Width; cellX++)
-            {
-                for (int cellY = 0; cellY < _world.Height; cellY++)
-                {
-                    if (_world.GetCell(cellX, cellY) != CellType.Food)
-                    {
-                        continue;
-                    }
-
-                    int pixelX = _gridX + cellX * CellSize;
-                    int pixelY = _gridY + cellY * CellSize;
-                    graphics.FillRectangle(foodBrush, pixelX, pixelY, CellSize, CellSize);
-                }
-            }
-        }
-
-        foreach (Colony colony in _world.Colonies)
-        {
-            using (Brush nestBrush = new SolidBrush(colony.Color))
-            {
-                DrawNest(graphics, nestBrush, colony.NestX, colony.NestY);
-            }
+            Colony colony = colonies[i];
+            DrawNest(canvas, ToSkColor(colony.Color), colony.NestX, colony.NestY);
         }
 
         if (_placingMode == PlacingMode.Colony)
@@ -356,12 +529,8 @@ public partial class Engine : Form
             if (NestFitsInWorld(hoverCellX, hoverCellY))
             {
                 Color ghostBase = ColonyColors[_nextColorIndex % ColonyColors.Length];
-                Color ghostColor = Color.FromArgb(140, ghostBase);
-
-                using (Brush ghostBrush = new SolidBrush(ghostColor))
-                {
-                    DrawNest(graphics, ghostBrush, hoverCellX, hoverCellY);
-                }
+                SKColor ghostColor = new SKColor(ghostBase.R, ghostBase.G, ghostBase.B, 140);
+                DrawNest(canvas, ghostColor, hoverCellX, hoverCellY);
             }
         }
 
@@ -375,50 +544,41 @@ public partial class Engine : Form
 
             if (hoverInsideX && hoverInsideY)
             {
-                Color foodGhost = Color.FromArgb(140, FoodColor);
-
-                using (Brush foodGhostBrush = new SolidBrush(foodGhost))
-                {
-                    int ghostPixelX = _gridX + hoverCellX * CellSize;
-                    int ghostPixelY = _gridY + hoverCellY * CellSize;
-                    graphics.FillRectangle(foodGhostBrush, ghostPixelX, ghostPixelY, CellSize, CellSize);
-                }
+                _fillPaint.Color = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B, 140);
+                int ghostPixelX = _gridX + hoverCellX * CellSize;
+                int ghostPixelY = _gridY + hoverCellY * CellSize;
+                canvas.DrawRect(ghostPixelX, ghostPixelY, CellSize, CellSize, _fillPaint);
             }
         }
 
-        foreach (UiButton button in _buttons)
+        canvas.DrawPicture(_buttonsPicture);
+
+        if (_hudPicture != null)
         {
-            using (Brush buttonBrush = new SolidBrush(button.BackgroundColor))
-            {
-                graphics.FillRectangle(buttonBrush, button.Bounds);
-            }
-
-            using (Pen buttonBorderPen = new Pen(Color.FromArgb(120, 120, 120)))
-            {
-                int borderRectX = button.Bounds.X;
-                int borderRectY = button.Bounds.Y;
-                int borderRectWidth = button.Bounds.Width - 1;
-                int borderRectHeight = button.Bounds.Height - 1;
-                graphics.DrawRectangle(buttonBorderPen, borderRectX, borderRectY, borderRectWidth, borderRectHeight);
-            }
-
-            using (Brush labelBrush = new SolidBrush(Color.White))
-            {
-                SizeF labelSize = graphics.MeasureString(button.Label, Font);
-                int labelWidth = (int)labelSize.Width;
-                int labelHeight = (int)labelSize.Height;
-                int labelX = button.Bounds.X + (button.Bounds.Width - labelWidth) / 2;
-                int labelY = button.Bounds.Y + (button.Bounds.Height - labelHeight) / 2;
-                graphics.DrawString(button.Label, Font, labelBrush, labelX, labelY);
-            }
+            canvas.DrawPicture(_hudPicture);
         }
+    }
 
-        using (Brush hudBrush = new SolidBrush(Color.White))
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _fillPaint.Dispose();
+        _strokePaint.Dispose();
+        _textPaint.Dispose();
+        _foodPath.Dispose();
+        _nestPath.Dispose();
+        if (_gridPicture != null)
         {
-            graphics.DrawString("Frame: " + _frame, Font, hudBrush, 8, 4);
-            graphics.DrawString("Frame time: " + _lastFrameMs.ToString("F3") + " ms", Font, hudBrush, 8, 22);
-            graphics.DrawString("FPS: " + _fps, Font, hudBrush, 8, 40);
+            _gridPicture.Dispose();
         }
+        if (_buttonsPicture != null)
+        {
+            _buttonsPicture.Dispose();
+        }
+        if (_hudPicture != null)
+        {
+            _hudPicture.Dispose();
+        }
+        base.OnFormClosed(e);
     }
 
     [StructLayout(LayoutKind.Sequential)]
