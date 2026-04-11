@@ -1,7 +1,9 @@
 namespace ANTS;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
 
@@ -50,7 +52,7 @@ public partial class Engine : Form
     private SKPaint _textPaint = null!;
     private SKPicture _gridPicture = null!;
     private SKPicture _buttonsPicture = null!;
-    private SKPicture? _hudPicture;
+    private SKPicture _hudPicture = null!;
     private SKPath _foodPath = null!;
     private SKPath _nestPath = null!;
     private SKFontMetrics _textMetrics;
@@ -59,24 +61,30 @@ public partial class Engine : Form
     private readonly Stopwatch _hudStopwatch = new Stopwatch();
     private const int HudUpdateIntervalMs = 50;
 
+    private int _frameCap = 1000;
+    private long _ticksPerFrame;
+    private long _nextFrameTicks;
+
     private SKColor _backgroundSkColor;
     private SKColor _foodSkColor;
     private SKColor _buttonBorderSkColor;
+
+    private readonly List<IDisposable> _ownedDisposables = new List<IDisposable>();
 
     public Engine()
     {
         InitializeComponent();
 
-        _fillPaint = new SKPaint();
+        _fillPaint = Own(new SKPaint());
         _fillPaint.Style = SKPaintStyle.Fill;
         _fillPaint.IsAntialias = false;
 
-        _strokePaint = new SKPaint();
+        _strokePaint = Own(new SKPaint());
         _strokePaint.Style = SKPaintStyle.Stroke;
         _strokePaint.IsAntialias = false;
         _strokePaint.StrokeWidth = 1;
 
-        _textPaint = new SKPaint();
+        _textPaint = Own(new SKPaint());
         _textPaint.Style = SKPaintStyle.Fill;
         _textPaint.IsAntialias = true;
         _textPaint.Color = SKColors.White;
@@ -85,8 +93,8 @@ public partial class Engine : Form
         _textMetrics = _textPaint.FontMetrics;
         _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
 
-        _foodPath = new SKPath();
-        _nestPath = new SKPath();
+        _foodPath = Own(new SKPath());
+        _nestPath = Own(new SKPath());
 
         _backgroundSkColor = new SKColor(BackColor.R, BackColor.G, BackColor.B);
         _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
@@ -105,14 +113,76 @@ public partial class Engine : Form
 
         _fpsStopwatch.Start();
         _hudStopwatch.Start();
+        RecordHudPicture();
+        UpdateFrameCapTiming();
         Application.Idle += OnApplicationIdle;
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int FrameCap
+    {
+        get { return _frameCap; }
+        set
+        {
+            _frameCap = value;
+            UpdateFrameCapTiming();
+        }
+    }
+
+    private void UpdateFrameCapTiming()
+    {
+        if (_frameCap > 0)
+        {
+            _ticksPerFrame = Stopwatch.Frequency / _frameCap;
+        }
+        else
+        {
+            _ticksPerFrame = 0;
+        }
+        _nextFrameTicks = Stopwatch.GetTimestamp();
+    }
+
+    private T Own<T>(T item) where T : class, IDisposable
+    {
+        _ownedDisposables.Add(item);
+        return item;
+    }
+
+    private void Replace<T>(ref T field, T newValue) where T : class, IDisposable
+    {
+        if (field != null)
+        {
+            _ownedDisposables.Remove(field);
+            field.Dispose();
+        }
+        field = newValue;
+        if (newValue != null)
+        {
+            _ownedDisposables.Add(newValue);
+        }
     }
 
     private void OnApplicationIdle(object? sender, EventArgs e)
     {
         while (IsApplicationIdle())
         {
-            Tick();
+            if (_ticksPerFrame <= 0)
+            {
+                Tick();
+                continue;
+            }
+
+            long nowTicks = Stopwatch.GetTimestamp();
+            if (nowTicks >= _nextFrameTicks)
+            {
+                _nextFrameTicks = nowTicks + _ticksPerFrame;
+                Tick();
+            }
+            else
+            {
+                Thread.Sleep(0);
+            }
         }
     }
 
@@ -131,11 +201,6 @@ public partial class Engine : Form
 
     private void RecordGridPicture()
     {
-        if (_gridPicture != null)
-        {
-            _gridPicture.Dispose();
-        }
-
         int gridWidth = _world.Width * CellSize;
         int gridHeight = _world.Height * CellSize;
 
@@ -190,7 +255,7 @@ public partial class Engine : Form
             }
         }
 
-        _gridPicture = recorder.EndRecording();
+        Replace(ref _gridPicture!, recorder.EndRecording());
         recorder.Dispose();
     }
 
@@ -208,7 +273,7 @@ public partial class Engine : Form
             _fpsStopwatch.Restart();
         }
 
-        if (_hudPicture == null || _hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
+        if (_hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
         {
             RecordHudPicture();
             _hudStopwatch.Restart();
@@ -267,11 +332,6 @@ public partial class Engine : Form
 
     private void RecordButtonsPicture()
     {
-        if (_buttonsPicture != null)
-        {
-            _buttonsPicture.Dispose();
-        }
-
         SKRect cullRect = new SKRect(0, 0, ClientSize.Width, ClientSize.Height);
 
         SKPictureRecorder recorder = new SKPictureRecorder();
@@ -290,17 +350,12 @@ public partial class Engine : Form
             recordingCanvas.DrawText(button.Label, button.TextBaselineX, button.TextBaselineY, _textPaint);
         }
 
-        _buttonsPicture = recorder.EndRecording();
+        Replace(ref _buttonsPicture!, recorder.EndRecording());
         recorder.Dispose();
     }
 
     private void RecordHudPicture()
     {
-        if (_hudPicture != null)
-        {
-            _hudPicture.Dispose();
-        }
-
         SKRect cullRect = new SKRect(0, 0, 400, 60);
 
         SKPictureRecorder recorder = new SKPictureRecorder();
@@ -313,7 +368,7 @@ public partial class Engine : Form
         recordingCanvas.DrawText("Frame time: " + _lastFrameMs.ToString("F3") + " ms", 8, hudBaselineY2, _textPaint);
         recordingCanvas.DrawText("FPS: " + _fps, 8, hudBaselineY3, _textPaint);
 
-        _hudPicture = recorder.EndRecording();
+        Replace(ref _hudPicture!, recorder.EndRecording());
         recorder.Dispose();
     }
 
@@ -552,33 +607,25 @@ public partial class Engine : Form
         }
 
         canvas.DrawPicture(_buttonsPicture);
-
-        if (_hudPicture != null)
-        {
-            canvas.DrawPicture(_hudPicture);
-        }
+        canvas.DrawPicture(_hudPicture);
     }
 
-    protected override void OnFormClosed(FormClosedEventArgs e)
+    protected override void Dispose(bool disposing)
     {
-        _fillPaint.Dispose();
-        _strokePaint.Dispose();
-        _textPaint.Dispose();
-        _foodPath.Dispose();
-        _nestPath.Dispose();
-        if (_gridPicture != null)
+        if (disposing)
         {
-            _gridPicture.Dispose();
+            for (int i = _ownedDisposables.Count - 1; i >= 0; i--)
+            {
+                _ownedDisposables[i].Dispose();
+            }
+            _ownedDisposables.Clear();
+
+            if (components != null)
+            {
+                components.Dispose();
+            }
         }
-        if (_buttonsPicture != null)
-        {
-            _buttonsPicture.Dispose();
-        }
-        if (_hudPicture != null)
-        {
-            _hudPicture.Dispose();
-        }
-        base.OnFormClosed(e);
+        base.Dispose(disposing);
     }
 
     [StructLayout(LayoutKind.Sequential)]
