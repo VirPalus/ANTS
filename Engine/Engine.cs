@@ -1,5 +1,6 @@
 namespace ANTS;
-using Timer = System.Windows.Forms.Timer;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 public partial class Engine : Form
 {
@@ -7,30 +8,54 @@ public partial class Engine : Form
     private const int BorderThickness = 8;
     private const int WorldPercent = 75;
 
-    private readonly Timer _timer = new Timer();
-
     private World _world = null!;
     private int _gridX;
     private int _gridY;
-    private int _frame;
+
+    private long _frame;
+    private readonly Stopwatch _fpsStopwatch = new Stopwatch();
+    private int _framesThisSecond;
+    private int _fps;
+    private double _lastFrameMs;
 
     public Engine()
     {
         InitializeComponent();
-        components.Add(_timer);
         DoubleBuffered = true;
 
         RecalculateLayout();
 
-        _timer.Interval = 1000 / 60;
-        _timer.Tick += OnTick;
-        _timer.Start();
+        _fpsStopwatch.Start();
+        Application.Idle += OnApplicationIdle;
     }
 
-    private void OnTick(object? sender, EventArgs e)
+    private void OnApplicationIdle(object? sender, EventArgs e)
     {
+        while (IsApplicationIdle())
+        {
+            Tick();
+        }
+    }
+
+    private void Tick()
+    {
+        long startTicks = Stopwatch.GetTimestamp();
+
         _frame++;
+        _framesThisSecond++;
+
+        if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
+        {
+            _fps = _framesThisSecond;
+            _framesThisSecond = 0;
+            _fpsStopwatch.Restart();
+        }
+
         Invalidate();
+        Update();
+
+        long endTicks = Stopwatch.GetTimestamp();
+        _lastFrameMs = (endTicks - startTicks) * 1000.0 / Stopwatch.Frequency;
     }
 
     protected override void OnResize(EventArgs e)
@@ -90,9 +115,30 @@ public partial class Engine : Form
             }
         }
 
-        using (Brush frameTextBrush = new SolidBrush(Color.White))
+        using (Brush hudBrush = new SolidBrush(Color.White))
         {
-            graphics.DrawString("Frame: " + _frame, Font, frameTextBrush, 8, 4);
+            graphics.DrawString("Frame: " + _frame, Font, hudBrush, 8, 4);
+            graphics.DrawString("Frame time: " + _lastFrameMs.ToString("F3") + " ms", Font, hudBrush, 8, 22);
+            graphics.DrawString("FPS: " + _fps, Font, hudBrush, 8, 40);
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeMessage
+    {
+        public IntPtr Handle;
+        public uint Message;
+        public IntPtr WParameter;
+        public IntPtr LParameter;
+        public uint Time;
+        public Point Location;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern int PeekMessage(out NativeMessage message, IntPtr window, uint filterMin, uint filterMax, uint remove);
+
+    private static bool IsApplicationIdle()
+    {
+        return PeekMessage(out NativeMessage _, IntPtr.Zero, 0, 0, 0) == 0;
     }
 }
