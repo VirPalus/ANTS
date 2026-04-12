@@ -46,21 +46,9 @@ public static class AntRenderer
     private static SKPath BuildBodyFillTemplate()
     {
         SKPath path = new SKPath();
-        path.AddOval(new SKRect(
-            AbdomenCenterX - AbdomenRadiusX,
-            -AbdomenRadiusY,
-            AbdomenCenterX + AbdomenRadiusX,
-            AbdomenRadiusY));
-        path.AddOval(new SKRect(
-            ThoraxCenterX - ThoraxRadiusX,
-            -ThoraxRadiusY,
-            ThoraxCenterX + ThoraxRadiusX,
-            ThoraxRadiusY));
-        path.AddOval(new SKRect(
-            HeadCenterX - HeadRadiusX,
-            -HeadRadiusY,
-            HeadCenterX + HeadRadiusX,
-            HeadRadiusY));
+        path.AddOval(new SKRect(AbdomenCenterX - AbdomenRadiusX, -AbdomenRadiusY, AbdomenCenterX + AbdomenRadiusX, AbdomenRadiusY));
+        path.AddOval(new SKRect(ThoraxCenterX - ThoraxRadiusX, -ThoraxRadiusY, ThoraxCenterX + ThoraxRadiusX, ThoraxRadiusY));
+        path.AddOval(new SKRect(HeadCenterX - HeadRadiusX, -HeadRadiusY, HeadCenterX + HeadRadiusX, HeadRadiusY));
         return path;
     }
 
@@ -78,14 +66,9 @@ public static class AntRenderer
         return path;
     }
 
-    public static void AddAnt(
-        SKPath legsBatch,
-        SKPath fillBatch,
-        SKPath strokeBatch,
-        float centerX,
-        float centerY,
-        float headingRadians,
-        float stridePhase)
+    public const int LegPointsPerAnt = 12;
+
+    public static void AddAnt(SKPath fillBatch, SKPath strokeBatch, SKPoint[] legPointsBuffer, int legPointsWriteIndex, float centerX, float centerY, float headingRadians, float stridePhase)
     {
         SKMatrix bodyTransform = SKMatrix.CreateRotation(headingRadians);
         bodyTransform.TransX = centerX;
@@ -100,36 +83,21 @@ public static class AntRenderer
         float legSwing = (float)Math.Sin(stridePhase) * LegSwingAmplitude;
         float legSwingOpposite = -legSwing;
 
-        AppendLeg(legsBatch, headingCos, headingSin, centerX, centerY,
-            LegFrontBaseX, -LegBaseY, LegFrontTipX + legSwing, -LegTipY);
-        AppendLeg(legsBatch, headingCos, headingSin, centerX, centerY,
-            LegMiddleBaseX, -LegBaseY, LegMiddleTipX + legSwingOpposite, -LegTipY);
-        AppendLeg(legsBatch, headingCos, headingSin, centerX, centerY,
-            LegBackBaseX, -LegBaseY, LegBackTipX + legSwing, -LegTipY);
-        AppendLeg(legsBatch, headingCos, headingSin, centerX, centerY,
-            LegFrontBaseX, LegBaseY, LegFrontTipX + legSwingOpposite, LegTipY);
-        AppendLeg(legsBatch, headingCos, headingSin, centerX, centerY,
-            LegMiddleBaseX, LegBaseY, LegMiddleTipX + legSwing, LegTipY);
-        AppendLeg(legsBatch, headingCos, headingSin, centerX, centerY,
-            LegBackBaseX, LegBaseY, LegBackTipX + legSwingOpposite, LegTipY);
+        WriteLegPoints(legPointsBuffer, legPointsWriteIndex, headingCos, headingSin, centerX, centerY, LegFrontBaseX, -LegBaseY, LegFrontTipX + legSwing, -LegTipY);
+        WriteLegPoints(legPointsBuffer, legPointsWriteIndex + 2, headingCos, headingSin, centerX, centerY, LegMiddleBaseX, -LegBaseY, LegMiddleTipX + legSwingOpposite, -LegTipY);
+        WriteLegPoints(legPointsBuffer, legPointsWriteIndex + 4, headingCos, headingSin, centerX, centerY, LegBackBaseX, -LegBaseY, LegBackTipX + legSwing, -LegTipY);
+        WriteLegPoints(legPointsBuffer, legPointsWriteIndex + 6, headingCos, headingSin, centerX, centerY, LegFrontBaseX, LegBaseY, LegFrontTipX + legSwingOpposite, LegTipY);
+        WriteLegPoints(legPointsBuffer, legPointsWriteIndex + 8, headingCos, headingSin, centerX, centerY, LegMiddleBaseX, LegBaseY, LegMiddleTipX + legSwing, LegTipY);
+        WriteLegPoints(legPointsBuffer, legPointsWriteIndex + 10, headingCos, headingSin, centerX, centerY, LegBackBaseX, LegBaseY, LegBackTipX + legSwingOpposite, LegTipY);
     }
 
-    private static void AppendLeg(
-        SKPath legsBatch,
-        float headingCos,
-        float headingSin,
-        float antCenterX,
-        float antCenterY,
-        float localStartX,
-        float localStartY,
-        float localEndX,
-        float localEndY)
+    private static void WriteLegPoints(SKPoint[] buffer, int writeIndex, float headingCos, float headingSin, float antCenterX, float antCenterY, float localStartX, float localStartY, float localEndX, float localEndY)
     {
         float startWorldX = headingCos * localStartX - headingSin * localStartY + antCenterX;
         float startWorldY = headingSin * localStartX + headingCos * localStartY + antCenterY;
         float endWorldX = headingCos * localEndX - headingSin * localEndY + antCenterX;
         float endWorldY = headingSin * localEndX + headingCos * localEndY + antCenterY;
-        legsBatch.MoveTo(startWorldX, startWorldY);
-        legsBatch.LineTo(endWorldX, endWorldY);
+        buffer[writeIndex] = new SKPoint(startWorldX, startWorldY);
+        buffer[writeIndex + 1] = new SKPoint(endWorldX, endWorldY);
     }
 }

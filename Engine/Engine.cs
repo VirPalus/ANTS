@@ -57,9 +57,9 @@ public partial class Engine : Form
     private SKPicture _hudPicture = null!;
     private SKPath _foodPath = null!;
     private SKPath _nestPath = null!;
-    private SKPath _antLegsBatch = null!;
     private SKPath _antFillBatch = null!;
     private SKPath _antStrokeBatch = null!;
+    private SKPoint[] _antLegPointsBuffer = Array.Empty<SKPoint>();
     private SKFontMetrics _textMetrics;
     private float _textHeight;
 
@@ -114,7 +114,6 @@ public partial class Engine : Form
 
         _foodPath = Own(new SKPath());
         _nestPath = Own(new SKPath());
-        _antLegsBatch = Own(new SKPath());
         _antFillBatch = Own(new SKPath());
         _antStrokeBatch = Own(new SKPath());
 
@@ -229,11 +228,7 @@ public partial class Engine : Form
         int gridHeight = _world.Height * CellSize;
 
         int borderHalf = BorderThickness / 2;
-        SKRect cullRect = new SKRect(
-            -borderHalf,
-            -borderHalf,
-            gridWidth + borderHalf,
-            gridHeight + borderHalf);
+        SKRect cullRect = new SKRect(-borderHalf, -borderHalf, gridWidth + borderHalf, gridHeight + borderHalf);
 
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
@@ -558,21 +553,34 @@ public partial class Engine : Form
         _antPaint.Color = colonyColor;
         _antStrokePaint.Color = colonyColor;
 
-        _antLegsBatch.Rewind();
         _antFillBatch.Rewind();
         _antStrokeBatch.Rewind();
 
+        int requiredLegPointCount = antCount * AntRenderer.LegPointsPerAnt;
+        EnsureLegPointsBufferCapacity(requiredLegPointCount);
+
+        int legPointsWriteIndex = 0;
         for (int i = 0; i < antCount; i++)
         {
             Ant ant = ants[i];
             float centerX = _gridX + ant.X * CellSize;
             float centerY = _gridY + ant.Y * CellSize;
-            AntRenderer.AddAnt(_antLegsBatch, _antFillBatch, _antStrokeBatch, centerX, centerY, ant.Heading, ant.StridePhase);
+            AntRenderer.AddAnt(_antFillBatch, _antStrokeBatch, _antLegPointsBuffer, legPointsWriteIndex, centerX, centerY, ant.Heading, ant.StridePhase);
+            legPointsWriteIndex += AntRenderer.LegPointsPerAnt;
         }
 
-        canvas.DrawPath(_antLegsBatch, _antStrokePaint);
+        canvas.DrawPoints(SKPointMode.Lines, _antLegPointsBuffer, _antStrokePaint);
         canvas.DrawPath(_antFillBatch, _antPaint);
         canvas.DrawPath(_antStrokeBatch, _antStrokePaint);
+    }
+
+    private void EnsureLegPointsBufferCapacity(int requiredCount)
+    {
+        if (_antLegPointsBuffer.Length == requiredCount)
+        {
+            return;
+        }
+        _antLegPointsBuffer = new SKPoint[requiredCount];
     }
 
     private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
