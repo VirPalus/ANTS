@@ -69,18 +69,7 @@ The engine owns the window, the game loop, and how things are drawn on screen.
 
 ## Performance HUD
 
-A live heads-up display shows frame-level and stage-level timing, all smoothed with an exponential moving average:
-
-- **Frame** — total frames rendered
-- **FPS** — frames per second (measured over 1-second windows)
-- **Frame time** — total time per frame in milliseconds
-- **Sim** — simulation update time (fixed-step ant logic)
-- **Food** — food cell draw time
-- **Nest** — nest draw time
-- **Ants** — ant atlas draw time
-- **Draw** — total SkiaSharp draw call time
-- **Render** — total render time including GPU present
-- **Present** — estimated GPU swap/present time
+A live heads-up display tracks key performance metrics, smoothed with an exponential moving average: FPS, frame time (total ms per frame), sim time (simulation update cost), and ant draw time.
 
 ## Current status
 

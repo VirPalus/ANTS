@@ -40,20 +40,13 @@ public partial class Engine : Form
     private int _mouseY;
     private bool _isDrawingFood;
 
-    private long _frame;
     private readonly Stopwatch _fpsStopwatch = new Stopwatch();
     private int _framesThisSecond;
     private int _fps;
     private double _lastFrameMs;
 
     private double _simStageMs;
-    private double _foodStageMs;
-    private double _nestStageMs;
     private double _antStageMs;
-    private double _drawStageMs;
-    private double _renderStageMs;
-    private double _presentStageMs;
-    private double _lastDrawStageSampleMs;
     private const double StageEmaAlpha = 0.05;
 
     private FastSKGLControl _skControl = null!;
@@ -285,7 +278,6 @@ public partial class Engine : Form
     {
         long startTicks = Stopwatch.GetTimestamp();
 
-        _frame++;
         _framesThisSecond++;
 
         if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
@@ -313,17 +305,7 @@ public partial class Engine : Form
             _hudStopwatch.Restart();
         }
 
-        long renderStartTicks = Stopwatch.GetTimestamp();
         _skControl.RenderFrameDirect();
-        long renderEndTicks = Stopwatch.GetTimestamp();
-        double renderSampleMs = TicksToMilliseconds(renderEndTicks - renderStartTicks);
-        UpdateStageEma(ref _renderStageMs, renderSampleMs);
-        double presentSampleMs = renderSampleMs - _lastDrawStageSampleMs;
-        if (presentSampleMs < 0.0)
-        {
-            presentSampleMs = 0.0;
-        }
-        UpdateStageEma(ref _presentStageMs, presentSampleMs);
 
         long endTicks = Stopwatch.GetTimestamp();
         _lastFrameMs = TicksToMilliseconds(endTicks - startTicks);
@@ -400,7 +382,7 @@ public partial class Engine : Form
 
     private void RecordHudPicture()
     {
-        SKRect cullRect = new SKRect(0, 0, 400, 220);
+        SKRect cullRect = new SKRect(0, 0, 300, 90);
 
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
@@ -409,25 +391,13 @@ public partial class Engine : Form
         float firstBaselineY = 4f - _textMetrics.Ascent;
         float baselineY = firstBaselineY;
 
-        recordingCanvas.DrawText("Frame: " + _frame, 8, baselineY, _textPaint);
+        recordingCanvas.DrawText("FPS:  " + _fps, 8, baselineY, _textPaint);
         baselineY += lineStep;
-        recordingCanvas.DrawText("FPS: " + _fps, 8, baselineY, _textPaint);
+        recordingCanvas.DrawText("FrameTime:  " + _lastFrameMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
         baselineY += lineStep;
-        recordingCanvas.DrawText("Frame: " + _lastFrameMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
+        recordingCanvas.DrawText("Sim:  " + _simStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
         baselineY += lineStep;
-        recordingCanvas.DrawText("Sim:    " + _simStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
-        baselineY += lineStep;
-        recordingCanvas.DrawText("Food:   " + _foodStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
-        baselineY += lineStep;
-        recordingCanvas.DrawText("Nest:   " + _nestStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
-        baselineY += lineStep;
-        recordingCanvas.DrawText("Ants:   " + _antStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
-        baselineY += lineStep;
-        recordingCanvas.DrawText("Draw:   " + _drawStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
-        baselineY += lineStep;
-        recordingCanvas.DrawText("Render: " + _renderStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
-        baselineY += lineStep;
-        recordingCanvas.DrawText("Present:" + _presentStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
+        recordingCanvas.DrawText("Ants:  " + _antStageMs.ToString("F3") + " ms", 8, baselineY, _textPaint);
 
         Replace(ref _hudPicture!, recorder.EndRecording());
         recorder.Dispose();
@@ -682,8 +652,6 @@ public partial class Engine : Form
 
     private void OnSkPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
     {
-        long paintStartTicks = Stopwatch.GetTimestamp();
-
         SKCanvas canvas = e.Surface.Canvas;
 
         canvas.Clear(_backgroundSkColor);
@@ -693,7 +661,6 @@ public partial class Engine : Form
         canvas.DrawPicture(_gridPicture);
         canvas.Restore();
 
-        long foodStartTicks = Stopwatch.GetTimestamp();
         int foodCount = _world.FoodCount;
         if (foodCount > 0)
         {
@@ -711,10 +678,7 @@ public partial class Engine : Form
             _fillPaint.Color = _foodSkColor;
             canvas.DrawPath(_foodPath, _fillPaint);
         }
-        long foodEndTicks = Stopwatch.GetTimestamp();
-        UpdateStageEma(ref _foodStageMs, TicksToMilliseconds(foodEndTicks - foodStartTicks));
 
-        long nestStartTicks = Stopwatch.GetTimestamp();
         IReadOnlyList<Colony> colonies = _world.Colonies;
         int colonyCount = colonies.Count;
         for (int i = 0; i < colonyCount; i++)
@@ -722,8 +686,6 @@ public partial class Engine : Form
             Colony colony = colonies[i];
             DrawNest(canvas, colony.CachedSkColor, colony.NestX, colony.NestY);
         }
-        long nestEndTicks = Stopwatch.GetTimestamp();
-        UpdateStageEma(ref _nestStageMs, TicksToMilliseconds(nestEndTicks - nestStartTicks));
 
         long antStartTicks = Stopwatch.GetTimestamp();
         for (int i = 0; i < colonyCount; i++)
@@ -766,11 +728,6 @@ public partial class Engine : Form
 
         canvas.DrawPicture(_buttonsPicture);
         canvas.DrawPicture(_hudPicture);
-
-        long paintEndTicks = Stopwatch.GetTimestamp();
-        double drawSampleMs = TicksToMilliseconds(paintEndTicks - paintStartTicks);
-        _lastDrawStageSampleMs = drawSampleMs;
-        UpdateStageEma(ref _drawStageMs, drawSampleMs);
     }
 
     protected override void Dispose(bool disposing)
