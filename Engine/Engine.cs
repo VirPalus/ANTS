@@ -61,13 +61,11 @@ public partial class Engine : Form
     private SKPaint _strokePaint = null!;
     private SKPaint _textPaint = null!;
     private SKPaint _antPaint = null!;
-    private SKPaint _antStrokePaint = null!;
     private SKPicture _gridPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private SKPicture _hudPicture = null!;
     private SKPath _foodPath = null!;
     private SKPath _nestPath = null!;
-    private SKPoint[] _antLegPointsBuffer = Array.Empty<SKPoint>();
     private SKRect[] _antBodySprites = Array.Empty<SKRect>();
     private SKRotationScaleMatrix[] _antBodyTransforms = Array.Empty<SKRotationScaleMatrix>();
     private SKColorFilter? _antBodyColorFilter;
@@ -115,12 +113,6 @@ public partial class Engine : Form
         _antPaint.Style = SKPaintStyle.Fill;
         _antPaint.IsAntialias = true;
         _antPaint.FilterQuality = SKFilterQuality.High;
-
-        _antStrokePaint = Own(new SKPaint());
-        _antStrokePaint.Style = SKPaintStyle.Stroke;
-        _antStrokePaint.IsAntialias = true;
-        _antStrokePaint.StrokeWidth = AntRenderer.BodyStroke;
-        _antStrokePaint.StrokeCap = SKStrokeCap.Round;
 
         _textMetrics = _textPaint.FontMetrics;
         _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
@@ -592,32 +584,47 @@ public partial class Engine : Form
 
     private void DrawAnts(SKCanvas canvas, Colony colony)
     {
-        IReadOnlyList<Ant> ants = colony.Ants;
-        int antCount = ants.Count;
+        List<Ant> antsList = colony.AntsList;
+        int antCount = antsList.Count;
         if (antCount == 0)
         {
             return;
         }
 
-        SKColor colonyColor = ToSkColor(colony.Color);
+        SKColor colonyColor = colony.CachedSkColor;
         EnsureAntBuffersCapacity(antCount);
 
-        int legPointsWriteIndex = 0;
+        Span<Ant> antsSpan = CollectionsMarshal.AsSpan(antsList);
+        SKRect[] frameRects = AntRenderer.FrameSpriteRects;
+        SKRect[] bodySprites = _antBodySprites;
+        SKRotationScaleMatrix[] bodyTransforms = _antBodyTransforms;
+
+        const float invSup = AntRenderer.AtlasInverseSupersample;
+        const float anchor = AntRenderer.AtlasAnchor;
+
+        int gridOriginX = _gridX;
+        int gridOriginY = _gridY;
+
         for (int i = 0; i < antCount; i++)
         {
-            Ant ant = ants[i];
-            float centerX = _gridX + ant.X * CellSize;
-            float centerY = _gridY + ant.Y * CellSize;
-            AntRenderer.WriteBodyTransform(_antBodyTransforms, i, centerX, centerY, ant.Heading);
-            AntRenderer.WriteLegPoints(_antLegPointsBuffer, legPointsWriteIndex, centerX, centerY, ant.Heading, ant.StridePhase);
-            legPointsWriteIndex += AntRenderer.LegPointsPerAnt;
+            Ant ant = antsSpan[i];
+            float centerX = gridOriginX + ant.X * CellSize;
+            float centerY = gridOriginY + ant.Y * CellSize;
+            float heading = ant.Heading;
+            float headingCos = (float)Math.Cos(heading);
+            float headingSin = (float)Math.Sin(heading);
+            float scos = headingCos * invSup;
+            float ssin = headingSin * invSup;
+            float tx = centerX - scos * anchor + ssin * anchor;
+            float ty = centerY - ssin * anchor - scos * anchor;
+            bodyTransforms[i] = new SKRotationScaleMatrix(scos, ssin, tx, ty);
+
+            int frameIndex = AntRenderer.GetFrameIndex(ant.StridePhase);
+            bodySprites[i] = frameRects[frameIndex];
         }
 
         ApplyBodyTint(colonyColor);
         canvas.DrawAtlas(AntRenderer.BodyAtlasImage, _antBodySprites, _antBodyTransforms, _antPaint);
-
-        _antStrokePaint.Color = colonyColor;
-        canvas.DrawPoints(SKPointMode.Lines, _antLegPointsBuffer, _antStrokePaint);
     }
 
     private void ApplyBodyTint(SKColor colonyColor)
@@ -635,11 +642,6 @@ public partial class Engine : Form
 
     private void EnsureAntBuffersCapacity(int antCount)
     {
-        int requiredLegPointCount = antCount * AntRenderer.LegPointsPerAnt;
-        if (_antLegPointsBuffer.Length != requiredLegPointCount)
-        {
-            _antLegPointsBuffer = new SKPoint[requiredLegPointCount];
-        }
         if (_antBodyTransforms.Length != antCount)
         {
             _antBodyTransforms = new SKRotationScaleMatrix[antCount];
@@ -647,11 +649,6 @@ public partial class Engine : Form
         if (_antBodySprites.Length != antCount)
         {
             _antBodySprites = new SKRect[antCount];
-            SKRect spriteRect = AntRenderer.AtlasSpriteRect;
-            for (int i = 0; i < antCount; i++)
-            {
-                _antBodySprites[i] = spriteRect;
-            }
         }
     }
 
@@ -723,7 +720,7 @@ public partial class Engine : Form
         for (int i = 0; i < colonyCount; i++)
         {
             Colony colony = colonies[i];
-            DrawNest(canvas, ToSkColor(colony.Color), colony.NestX, colony.NestY);
+            DrawNest(canvas, colony.CachedSkColor, colony.NestX, colony.NestY);
         }
         long nestEndTicks = Stopwatch.GetTimestamp();
         UpdateStageEma(ref _nestStageMs, TicksToMilliseconds(nestEndTicks - nestStartTicks));

@@ -40,18 +40,40 @@ public static class AntRenderer
 
     public const float BodyStroke = 0.8f;
 
-    public const int LegPointsPerAnt = 12;
+    public const int StrideFrameCount = 16;
+    private const int StrideFrameIndexMask = StrideFrameCount - 1;
+    private const float TwoPi = 6.28318548f;
+    private const float FrameIndexScale = StrideFrameCount / TwoPi;
 
     private const int AtlasSupersample = 8;
     private const int AtlasFrameSizePixels = 192;
-    private const float AtlasAnchor = 96f;
-    private const float AtlasInverseSupersample = 1f / AtlasSupersample;
+    public const float AtlasAnchor = 96f;
+    public const float AtlasInverseSupersample = 1f / AtlasSupersample;
 
-    private static readonly SKRect _atlasSpriteRect = new SKRect(0f, 0f, AtlasFrameSizePixels, AtlasFrameSizePixels);
+    private static readonly SKRect[] _frameSpriteRects = BuildFrameSpriteRects();
     private static readonly SKImage _bodyAtlasImage = BuildBodyAtlas();
 
-    public static SKImage BodyAtlasImage => _bodyAtlasImage;
-    public static SKRect AtlasSpriteRect => _atlasSpriteRect;
+    public static SKImage BodyAtlasImage
+    {
+        get { return _bodyAtlasImage; }
+    }
+
+    public static SKRect[] FrameSpriteRects
+    {
+        get { return _frameSpriteRects; }
+    }
+
+    private static SKRect[] BuildFrameSpriteRects()
+    {
+        SKRect[] rects = new SKRect[StrideFrameCount];
+        for (int i = 0; i < StrideFrameCount; i++)
+        {
+            float left = i * AtlasFrameSizePixels;
+            float right = left + AtlasFrameSizePixels;
+            rects[i] = new SKRect(left, 0f, right, AtlasFrameSizePixels);
+        }
+        return rects;
+    }
 
     private static SKPath BuildBodyFillTemplate()
     {
@@ -62,7 +84,7 @@ public static class AntRenderer
         return path;
     }
 
-    private static SKPath BuildBodyStrokeTemplate()
+    private static SKPath BuildBodyStrokeTemplate(float stridePhase)
     {
         SKPath path = new SKPath();
         path.MoveTo(WaistStartX, 0f);
@@ -73,26 +95,40 @@ public static class AntRenderer
         path.QuadTo(AntennaMidX, -AntennaMidY, AntennaTipX, -AntennaTipY);
         path.MoveTo(AntennaBaseX, 0f);
         path.QuadTo(AntennaMidX, AntennaMidY, AntennaTipX, AntennaTipY);
+
+        float legSwing = (float)Math.Sin(stridePhase) * LegSwingAmplitude;
+        float legSwingOpposite = -legSwing;
+
+        path.MoveTo(LegFrontBaseX, -LegBaseY);
+        path.LineTo(LegFrontTipX + legSwing, -LegTipY);
+        path.MoveTo(LegMiddleBaseX, -LegBaseY);
+        path.LineTo(LegMiddleTipX + legSwingOpposite, -LegTipY);
+        path.MoveTo(LegBackBaseX, -LegBaseY);
+        path.LineTo(LegBackTipX + legSwing, -LegTipY);
+        path.MoveTo(LegFrontBaseX, LegBaseY);
+        path.LineTo(LegFrontTipX + legSwingOpposite, LegTipY);
+        path.MoveTo(LegMiddleBaseX, LegBaseY);
+        path.LineTo(LegMiddleTipX + legSwing, LegTipY);
+        path.MoveTo(LegBackBaseX, LegBaseY);
+        path.LineTo(LegBackTipX + legSwingOpposite, LegTipY);
+
         return path;
     }
 
     private static SKImage BuildBodyAtlas()
     {
-        SKImageInfo info = new SKImageInfo(AtlasFrameSizePixels, AtlasFrameSizePixels, SKColorType.Rgba8888, SKAlphaType.Premul);
+        int totalWidth = AtlasFrameSizePixels * StrideFrameCount;
+        SKImageInfo info = new SKImageInfo(totalWidth, AtlasFrameSizePixels, SKColorType.Rgba8888, SKAlphaType.Premul);
         using SKSurface surface = SKSurface.Create(info);
         SKCanvas canvas = surface.Canvas;
         canvas.Clear(SKColors.Transparent);
-        canvas.Translate(AtlasAnchor, AtlasAnchor);
-        canvas.Scale(AtlasSupersample, AtlasSupersample);
 
         using SKPath fillTemplate = BuildBodyFillTemplate();
-        using SKPath strokeTemplate = BuildBodyStrokeTemplate();
 
         using SKPaint fillPaint = new SKPaint();
         fillPaint.Style = SKPaintStyle.Fill;
         fillPaint.IsAntialias = true;
         fillPaint.Color = SKColors.White;
-        canvas.DrawPath(fillTemplate, fillPaint);
 
         using SKPaint strokePaint = new SKPaint();
         strokePaint.Style = SKPaintStyle.Stroke;
@@ -100,37 +136,30 @@ public static class AntRenderer
         strokePaint.StrokeCap = SKStrokeCap.Round;
         strokePaint.IsAntialias = true;
         strokePaint.Color = SKColors.White;
-        canvas.DrawPath(strokeTemplate, strokePaint);
+
+        for (int frameIndex = 0; frameIndex < StrideFrameCount; frameIndex++)
+        {
+            canvas.Save();
+            float frameOriginX = frameIndex * AtlasFrameSizePixels + AtlasAnchor;
+            canvas.Translate(frameOriginX, AtlasAnchor);
+            canvas.Scale(AtlasSupersample, AtlasSupersample);
+
+            float stridePhase = frameIndex * TwoPi / StrideFrameCount;
+            using SKPath strokeTemplate = BuildBodyStrokeTemplate(stridePhase);
+
+            canvas.DrawPath(fillTemplate, fillPaint);
+            canvas.DrawPath(strokeTemplate, strokePaint);
+
+            canvas.Restore();
+        }
 
         return surface.Snapshot();
     }
 
-    public static void WriteBodyTransform(SKRotationScaleMatrix[] transforms, int index, float centerX, float centerY, float headingRadians)
+    public static int GetFrameIndex(float stridePhase)
     {
-        transforms[index] = SKRotationScaleMatrix.Create(AtlasInverseSupersample, headingRadians, centerX, centerY, AtlasAnchor, AtlasAnchor);
-    }
-
-    public static void WriteLegPoints(SKPoint[] buffer, int writeIndex, float centerX, float centerY, float headingRadians, float stridePhase)
-    {
-        float headingCos = (float)Math.Cos(headingRadians);
-        float headingSin = (float)Math.Sin(headingRadians);
-        float legSwing = (float)Math.Sin(stridePhase) * LegSwingAmplitude;
-        float legSwingOpposite = -legSwing;
-        WriteLegSegment(buffer, writeIndex, headingCos, headingSin, centerX, centerY, LegFrontBaseX, -LegBaseY, LegFrontTipX + legSwing, -LegTipY);
-        WriteLegSegment(buffer, writeIndex + 2, headingCos, headingSin, centerX, centerY, LegMiddleBaseX, -LegBaseY, LegMiddleTipX + legSwingOpposite, -LegTipY);
-        WriteLegSegment(buffer, writeIndex + 4, headingCos, headingSin, centerX, centerY, LegBackBaseX, -LegBaseY, LegBackTipX + legSwing, -LegTipY);
-        WriteLegSegment(buffer, writeIndex + 6, headingCos, headingSin, centerX, centerY, LegFrontBaseX, LegBaseY, LegFrontTipX + legSwingOpposite, LegTipY);
-        WriteLegSegment(buffer, writeIndex + 8, headingCos, headingSin, centerX, centerY, LegMiddleBaseX, LegBaseY, LegMiddleTipX + legSwing, LegTipY);
-        WriteLegSegment(buffer, writeIndex + 10, headingCos, headingSin, centerX, centerY, LegBackBaseX, LegBaseY, LegBackTipX + legSwingOpposite, LegTipY);
-    }
-
-    private static void WriteLegSegment(SKPoint[] buffer, int writeIndex, float headingCos, float headingSin, float antCenterX, float antCenterY, float localStartX, float localStartY, float localEndX, float localEndY)
-    {
-        float startWorldX = headingCos * localStartX - headingSin * localStartY + antCenterX;
-        float startWorldY = headingSin * localStartX + headingCos * localStartY + antCenterY;
-        float endWorldX = headingCos * localEndX - headingSin * localEndY + antCenterX;
-        float endWorldY = headingSin * localEndX + headingCos * localEndY + antCenterY;
-        buffer[writeIndex] = new SKPoint(startWorldX, startWorldY);
-        buffer[writeIndex + 1] = new SKPoint(endWorldX, endWorldY);
+        float scaled = stridePhase * FrameIndexScale;
+        int floored = (int)scaled;
+        return floored & StrideFrameIndexMask;
     }
 }
