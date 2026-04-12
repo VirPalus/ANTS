@@ -1,15 +1,37 @@
 namespace ANTS;
+using System.Collections.Generic;
 
 public class Colony
 {
+    public int Id { get; }
     public int NestX { get; }
     public int NestY { get; }
     public Color Color { get; }
 
-    public Colony(int nestX, int nestY, Color color)
+    private List<Ant> _ants;
+    public int SpawnCounter;
+    public int MaxAnts;
+
+    public IReadOnlyList<Ant> Ants
     {
+        get { return _ants; }
+    }
+
+    public Colony(int id, int nestX, int nestY, Color color)
+    {
+        Id = id;
         NestX = nestX;
         NestY = nestY;
         Color = color;
+        _ants = new List<Ant>();
+        MaxAnts = 200;
+        SpawnCounter = 0;
+    }
+
+    public Ant SpawnAnt(float x, float y, float heading, AntRole role)
+    {
+        Ant ant = new Ant(x, y, heading, role);
+        _ants.Add(ant);
+        return ant;
     }
 }

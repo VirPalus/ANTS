@@ -3,7 +3,12 @@ using System.Collections.Generic;
 
 public class World
 {
+    public const int NestRadius = 2;
+    public const int SimHz = 60;
+
     private const int InitialFoodCapacity = 256;
+    private const float SpawnIntervalSeconds = 1.0f;
+    private const int SpawnIntervalTicks = (int)(SpawnIntervalSeconds * SimHz);
 
     private CellType[,] _cells;
     public int Width { get; }
@@ -11,8 +16,13 @@ public class World
 
     private List<Colony> _colonies;
 
+    private int[,] _nestOwnerCells;
+    private bool[,] _antOccupancy;
+
     private Point[] _foodCells;
     private int _foodCount;
+
+    private Random _random;
 
     public IReadOnlyList<Colony> Colonies
     {
@@ -35,8 +45,98 @@ public class World
         Height = height;
         _cells = new CellType[Width, Height];
         _colonies = new List<Colony>();
+        _nestOwnerCells = new int[Width, Height];
+        _antOccupancy = new bool[Width, Height];
         _foodCells = new Point[InitialFoodCapacity];
         _foodCount = 0;
+        _random = new Random();
+    }
+
+    public void Update()
+    {
+        int colonyCount = _colonies.Count;
+        for (int i = 0; i < colonyCount; i++)
+        {
+            Colony colony = _colonies[i];
+            UpdateColony(colony);
+        }
+    }
+
+    private void UpdateColony(Colony colony)
+    {
+        colony.SpawnCounter++;
+        if (colony.SpawnCounter >= SpawnIntervalTicks)
+        {
+            colony.SpawnCounter = 0;
+            if (colony.Ants.Count < colony.MaxAnts)
+            {
+                float spawnX = colony.NestX + 0.5f;
+                float spawnY = colony.NestY + 0.5f;
+                float heading = (float)(_random.NextDouble() * Math.PI * 2);
+                colony.SpawnAnt(spawnX, spawnY, heading, AntRole.Scout);
+            }
+        }
+
+        IReadOnlyList<Ant> ants = colony.Ants;
+        int antCount = ants.Count;
+        for (int j = 0; j < antCount; j++)
+        {
+            Ant ant = ants[j];
+            AntBehavior.Update(ant, colony, this);
+        }
+    }
+
+    public float NextRandomFloat()
+    {
+        return (float)_random.NextDouble();
+    }
+
+    public bool IsBlocked(float x, float y, int selfCellX, int selfCellY, Colony colony)
+    {
+        if (x < 0f || x >= Width)
+        {
+            return true;
+        }
+        if (y < 0f || y >= Height)
+        {
+            return true;
+        }
+
+        int cellX = (int)x;
+        int cellY = (int)y;
+
+        if (cellX == selfCellX && cellY == selfCellY)
+        {
+            return false;
+        }
+
+        int owner = _nestOwnerCells[cellX, cellY];
+
+        if (owner != 0 && owner != colony.Id)
+        {
+            return true;
+        }
+        if (owner == 0 && _antOccupancy[cellX, cellY])
+        {
+            return true;
+        }
+        return false;
+    }
+
+    public void UpdateAntOccupancy(int oldCellX, int oldCellY, int newCellX, int newCellY)
+    {
+        if (newCellX == oldCellX && newCellY == oldCellY)
+        {
+            return;
+        }
+        if (_antOccupancy[oldCellX, oldCellY])
+        {
+            _antOccupancy[oldCellX, oldCellY] = false;
+        }
+        if (_nestOwnerCells[newCellX, newCellY] == 0)
+        {
+            _antOccupancy[newCellX, newCellY] = true;
+        }
     }
 
     public CellType GetCell(int x, int y)
@@ -121,7 +221,35 @@ public class World
             return;
         }
 
-        Colony newColony = new Colony(x, y, color);
+        int newId = _colonies.Count + 1;
+        Colony newColony = new Colony(newId, x, y, color);
         _colonies.Add(newColony);
+        MarkNestCells(newColony);
+    }
+
+    private void MarkNestCells(Colony colony)
+    {
+        for (int dy = -NestRadius; dy <= NestRadius; dy++)
+        {
+            for (int dx = -NestRadius; dx <= NestRadius; dx++)
+            {
+                int manhattan = Math.Abs(dx) + Math.Abs(dy);
+                if (manhattan > NestRadius)
+                {
+                    continue;
+                }
+                int cellX = colony.NestX + dx;
+                int cellY = colony.NestY + dy;
+                if (cellX < 0 || cellX >= Width)
+                {
+                    continue;
+                }
+                if (cellY < 0 || cellY >= Height)
+                {
+                    continue;
+                }
+                _nestOwnerCells[cellX, cellY] = colony.Id;
+            }
+        }
     }
 }

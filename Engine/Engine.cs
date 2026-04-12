@@ -15,19 +15,19 @@ public partial class Engine : Form
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
-    private const int NestRadius = 2;
 
     private static readonly Color[] ColonyColors = new Color[]
     {
         Color.FromArgb(239, 68, 68),
-        Color.FromArgb(249, 115, 22),
-        Color.FromArgb(234, 179, 8),
         Color.FromArgb(59, 130, 246),
+        Color.FromArgb(249, 115, 22),
         Color.FromArgb(168, 85, 247),
+        Color.FromArgb(234, 179, 8),
         Color.FromArgb(236, 72, 153),
     };
 
     private static readonly Color FoodColor = Color.FromArgb(34, 197, 94);
+    private static readonly SKColor AntSkColor = new SKColor(210, 210, 210);
 
     private World _world = null!;
     private int _gridX;
@@ -50,20 +50,29 @@ public partial class Engine : Form
     private SKPaint _fillPaint = null!;
     private SKPaint _strokePaint = null!;
     private SKPaint _textPaint = null!;
+    private SKPaint _antPaint = null!;
+    private SKPaint _antStrokePaint = null!;
     private SKPicture _gridPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private SKPicture _hudPicture = null!;
     private SKPath _foodPath = null!;
     private SKPath _nestPath = null!;
+    private SKPath _antLegsBatch = null!;
+    private SKPath _antFillBatch = null!;
+    private SKPath _antStrokeBatch = null!;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
 
     private readonly Stopwatch _hudStopwatch = new Stopwatch();
     private const int HudUpdateIntervalMs = 50;
 
-    private int _frameCap = 1000;
+    private int _frameCap = 10000;
     private long _ticksPerFrame;
     private long _nextFrameTicks;
+
+    private long _ticksPerSimStep;
+    private long _simAccumulatorTicks;
+    private long _lastSimTimestamp;
 
     private SKColor _backgroundSkColor;
     private SKColor _foodSkColor;
@@ -90,11 +99,24 @@ public partial class Engine : Form
         _textPaint.Color = SKColors.White;
         _textPaint.TextSize = 14;
 
+        _antPaint = Own(new SKPaint());
+        _antPaint.Style = SKPaintStyle.Fill;
+        _antPaint.IsAntialias = true;
+
+        _antStrokePaint = Own(new SKPaint());
+        _antStrokePaint.Style = SKPaintStyle.Stroke;
+        _antStrokePaint.IsAntialias = true;
+        _antStrokePaint.StrokeWidth = AntRenderer.BodyStroke;
+        _antStrokePaint.StrokeCap = SKStrokeCap.Round;
+
         _textMetrics = _textPaint.FontMetrics;
         _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
 
         _foodPath = Own(new SKPath());
         _nestPath = Own(new SKPath());
+        _antLegsBatch = Own(new SKPath());
+        _antFillBatch = Own(new SKPath());
+        _antStrokeBatch = Own(new SKPath());
 
         _backgroundSkColor = new SKColor(BackColor.R, BackColor.G, BackColor.B);
         _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
@@ -115,6 +137,8 @@ public partial class Engine : Form
         _hudStopwatch.Start();
         RecordHudPicture();
         UpdateFrameCapTiming();
+        _ticksPerSimStep = Stopwatch.Frequency / World.SimHz;
+        _lastSimTimestamp = Stopwatch.GetTimestamp();
         Application.Idle += OnApplicationIdle;
     }
 
@@ -271,6 +295,16 @@ public partial class Engine : Form
             _fps = _framesThisSecond;
             _framesThisSecond = 0;
             _fpsStopwatch.Restart();
+        }
+
+        long simNowTicks = Stopwatch.GetTimestamp();
+        long simDeltaTicks = simNowTicks - _lastSimTimestamp;
+        _lastSimTimestamp = simNowTicks;
+        _simAccumulatorTicks += simDeltaTicks;
+        while (_simAccumulatorTicks >= _ticksPerSimStep)
+        {
+            _world.Update();
+            _simAccumulatorTicks -= _ticksPerSimStep;
         }
 
         if (_hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
@@ -487,19 +521,19 @@ public partial class Engine : Form
 
     private bool NestFitsInWorld(int centerCellX, int centerCellY)
     {
-        if (centerCellX - NestRadius < 0)
+        if (centerCellX - World.NestRadius < 0)
         {
             return false;
         }
-        if (centerCellX + NestRadius >= _world.Width)
+        if (centerCellX + World.NestRadius >= _world.Width)
         {
             return false;
         }
-        if (centerCellY - NestRadius < 0)
+        if (centerCellY - World.NestRadius < 0)
         {
             return false;
         }
-        if (centerCellY + NestRadius >= _world.Height)
+        if (centerCellY + World.NestRadius >= _world.Height)
         {
             return false;
         }
@@ -511,16 +545,46 @@ public partial class Engine : Form
         return new SKColor(color.R, color.G, color.B, color.A);
     }
 
+    private void DrawAnts(SKCanvas canvas, Colony colony)
+    {
+        IReadOnlyList<Ant> ants = colony.Ants;
+        int antCount = ants.Count;
+        if (antCount == 0)
+        {
+            return;
+        }
+
+        SKColor colonyColor = ToSkColor(colony.Color);
+        _antPaint.Color = colonyColor;
+        _antStrokePaint.Color = colonyColor;
+
+        _antLegsBatch.Rewind();
+        _antFillBatch.Rewind();
+        _antStrokeBatch.Rewind();
+
+        for (int i = 0; i < antCount; i++)
+        {
+            Ant ant = ants[i];
+            float centerX = _gridX + ant.X * CellSize;
+            float centerY = _gridY + ant.Y * CellSize;
+            AntRenderer.AddAnt(_antLegsBatch, _antFillBatch, _antStrokeBatch, centerX, centerY, ant.Heading, ant.StridePhase);
+        }
+
+        canvas.DrawPath(_antLegsBatch, _antStrokePaint);
+        canvas.DrawPath(_antFillBatch, _antPaint);
+        canvas.DrawPath(_antStrokeBatch, _antStrokePaint);
+    }
+
     private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
     {
         _nestPath.Reset();
 
-        for (int dy = -NestRadius; dy <= NestRadius; dy++)
+        for (int dy = -World.NestRadius; dy <= World.NestRadius; dy++)
         {
-            for (int dx = -NestRadius; dx <= NestRadius; dx++)
+            for (int dx = -World.NestRadius; dx <= World.NestRadius; dx++)
             {
                 int manhattan = Math.Abs(dx) + Math.Abs(dy);
-                if (manhattan > NestRadius)
+                if (manhattan > World.NestRadius)
                 {
                     continue;
                 }
@@ -574,6 +638,12 @@ public partial class Engine : Form
         {
             Colony colony = colonies[i];
             DrawNest(canvas, ToSkColor(colony.Color), colony.NestX, colony.NestY);
+        }
+
+        for (int i = 0; i < colonyCount; i++)
+        {
+            Colony colony = colonies[i];
+            DrawAnts(canvas, colony);
         }
 
         if (_placingMode == PlacingMode.Colony)
