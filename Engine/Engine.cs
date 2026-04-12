@@ -11,7 +11,7 @@ public partial class Engine : Form
 {
     private const int CellSize = 16;
     private const int BorderThickness = 8;
-    private const int WorldPercent = 75;
+    private const int WorldPercent = 90;
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
@@ -57,9 +57,11 @@ public partial class Engine : Form
     private SKPicture _hudPicture = null!;
     private SKPath _foodPath = null!;
     private SKPath _nestPath = null!;
-    private SKPath _antFillBatch = null!;
-    private SKPath _antStrokeBatch = null!;
     private SKPoint[] _antLegPointsBuffer = Array.Empty<SKPoint>();
+    private SKRect[] _antBodySprites = Array.Empty<SKRect>();
+    private SKRotationScaleMatrix[] _antBodyTransforms = Array.Empty<SKRotationScaleMatrix>();
+    private SKColorFilter? _antBodyColorFilter;
+    private uint _antBodyColorFilterCachedColor;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
 
@@ -102,6 +104,7 @@ public partial class Engine : Form
         _antPaint = Own(new SKPaint());
         _antPaint.Style = SKPaintStyle.Fill;
         _antPaint.IsAntialias = true;
+        _antPaint.FilterQuality = SKFilterQuality.High;
 
         _antStrokePaint = Own(new SKPaint());
         _antStrokePaint.Style = SKPaintStyle.Stroke;
@@ -114,8 +117,6 @@ public partial class Engine : Form
 
         _foodPath = Own(new SKPath());
         _nestPath = Own(new SKPath());
-        _antFillBatch = Own(new SKPath());
-        _antStrokeBatch = Own(new SKPath());
 
         _backgroundSkColor = new SKColor(BackColor.R, BackColor.G, BackColor.B);
         _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
@@ -550,14 +551,7 @@ public partial class Engine : Form
         }
 
         SKColor colonyColor = ToSkColor(colony.Color);
-        _antPaint.Color = colonyColor;
-        _antStrokePaint.Color = colonyColor;
-
-        _antFillBatch.Rewind();
-        _antStrokeBatch.Rewind();
-
-        int requiredLegPointCount = antCount * AntRenderer.LegPointsPerAnt;
-        EnsureLegPointsBufferCapacity(requiredLegPointCount);
+        EnsureAntBuffersCapacity(antCount);
 
         int legPointsWriteIndex = 0;
         for (int i = 0; i < antCount; i++)
@@ -565,22 +559,51 @@ public partial class Engine : Form
             Ant ant = ants[i];
             float centerX = _gridX + ant.X * CellSize;
             float centerY = _gridY + ant.Y * CellSize;
-            AntRenderer.AddAnt(_antFillBatch, _antStrokeBatch, _antLegPointsBuffer, legPointsWriteIndex, centerX, centerY, ant.Heading, ant.StridePhase);
+            AntRenderer.WriteBodyTransform(_antBodyTransforms, i, centerX, centerY, ant.Heading);
+            AntRenderer.WriteLegPoints(_antLegPointsBuffer, legPointsWriteIndex, centerX, centerY, ant.Heading, ant.StridePhase);
             legPointsWriteIndex += AntRenderer.LegPointsPerAnt;
         }
 
+        ApplyBodyTint(colonyColor);
+        canvas.DrawAtlas(AntRenderer.BodyAtlasImage, _antBodySprites, _antBodyTransforms, _antPaint);
+
+        _antStrokePaint.Color = colonyColor;
         canvas.DrawPoints(SKPointMode.Lines, _antLegPointsBuffer, _antStrokePaint);
-        canvas.DrawPath(_antFillBatch, _antPaint);
-        canvas.DrawPath(_antStrokeBatch, _antStrokePaint);
     }
 
-    private void EnsureLegPointsBufferCapacity(int requiredCount)
+    private void ApplyBodyTint(SKColor colonyColor)
     {
-        if (_antLegPointsBuffer.Length == requiredCount)
+        uint packedColor = (uint)colonyColor;
+        if (_antBodyColorFilter != null && _antBodyColorFilterCachedColor == packedColor)
         {
             return;
         }
-        _antLegPointsBuffer = new SKPoint[requiredCount];
+        _antBodyColorFilter?.Dispose();
+        _antBodyColorFilter = SKColorFilter.CreateBlendMode(colonyColor, SKBlendMode.Modulate);
+        _antBodyColorFilterCachedColor = packedColor;
+        _antPaint.ColorFilter = _antBodyColorFilter;
+    }
+
+    private void EnsureAntBuffersCapacity(int antCount)
+    {
+        int requiredLegPointCount = antCount * AntRenderer.LegPointsPerAnt;
+        if (_antLegPointsBuffer.Length != requiredLegPointCount)
+        {
+            _antLegPointsBuffer = new SKPoint[requiredLegPointCount];
+        }
+        if (_antBodyTransforms.Length != antCount)
+        {
+            _antBodyTransforms = new SKRotationScaleMatrix[antCount];
+        }
+        if (_antBodySprites.Length != antCount)
+        {
+            _antBodySprites = new SKRect[antCount];
+            SKRect spriteRect = AntRenderer.AtlasSpriteRect;
+            for (int i = 0; i < antCount; i++)
+            {
+                _antBodySprites[i] = spriteRect;
+            }
+        }
     }
 
     private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
@@ -692,6 +715,9 @@ public partial class Engine : Form
     {
         if (disposing)
         {
+            _antBodyColorFilter?.Dispose();
+            _antBodyColorFilter = null;
+
             for (int i = _ownedDisposables.Count - 1; i >= 0; i--)
             {
                 _ownedDisposables[i].Dispose();
