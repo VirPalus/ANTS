@@ -20,9 +20,9 @@ public partial class Engine : Form
     {
         Color.FromArgb(239, 68, 68),
         Color.FromArgb(59, 130, 246),
+        Color.FromArgb(234, 179, 8),
         Color.FromArgb(249, 115, 22),
         Color.FromArgb(168, 85, 247),
-        Color.FromArgb(234, 179, 8),
         Color.FromArgb(236, 72, 153),
     };
 
