@@ -4,4 +4,6 @@ public enum CellType
 {
     Empty,
     Food,
+    Nest,
+    Wall
 }

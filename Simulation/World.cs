@@ -5,19 +5,24 @@ public class World
 {
     public const int NestRadius = 2;
     public const int SimHz = 60;
+    public const float TickSeconds = 1f / SimHz;
+    public const float FoodPickupAmount = 0.1f;
+    public const float DensityDecayPerSecond = 0.5f;
 
     private const int InitialFoodCapacity = 256;
-    private const float SpawnIntervalSeconds = 1.0f;
-    private const int SpawnIntervalTicks = (int)(SpawnIntervalSeconds * SimHz);
 
     private CellType[,] _cells;
+    private float[,] _foodAmount;
+    private int[,] _nestOwnerCells;
+    private int[,] _antDensity;
+    private int[,] _wallDistance;
+
     public int Width { get; }
     public int Height { get; }
+    public float SimulationTime { get; private set; }
 
     private List<Colony> _colonies;
-
-    private int[,] _nestOwnerCells;
-    private bool[,] _antOccupancy;
+    private List<Colony> _deadColonies;
 
     private Point[] _foodCells;
     private int _foodCount;
@@ -27,6 +32,11 @@ public class World
     public IReadOnlyList<Colony> Colonies
     {
         get { return _colonies; }
+    }
+
+    public IReadOnlyList<Colony> DeadColonies
+    {
+        get { return _deadColonies; }
     }
 
     public int FoodCount
@@ -44,45 +54,225 @@ public class World
         Width = width;
         Height = height;
         _cells = new CellType[Width, Height];
-        _colonies = new List<Colony>();
+        _foodAmount = new float[Width, Height];
         _nestOwnerCells = new int[Width, Height];
-        _antOccupancy = new bool[Width, Height];
+        _antDensity = new int[Width, Height];
+        _wallDistance = new int[Width, Height];
+        _colonies = new List<Colony>();
+        _deadColonies = new List<Colony>();
         _foodCells = new Point[InitialFoodCapacity];
         _foodCount = 0;
         _random = new Random();
+        SimulationTime = 0f;
+        ComputeWallDistance();
+    }
+
+    private void ComputeWallDistance()
+    {
+        for (int x = 0; x < Width; x++)
+        {
+            for (int y = 0; y < Height; y++)
+            {
+                int distLeft = x;
+                int distRight = Width - 1 - x;
+                int distTop = y;
+                int distBottom = Height - 1 - y;
+                int minDist = distLeft;
+                if (distRight < minDist)
+                {
+                    minDist = distRight;
+                }
+                if (distTop < minDist)
+                {
+                    minDist = distTop;
+                }
+                if (distBottom < minDist)
+                {
+                    minDist = distBottom;
+                }
+                _wallDistance[x, y] = minDist;
+            }
+        }
+    }
+
+    public int GetWallDistance(int x, int y)
+    {
+        if (x < 0 || x >= Width)
+        {
+            return 0;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return 0;
+        }
+        return _wallDistance[x, y];
     }
 
     public void Update()
     {
+        float dt = TickSeconds;
+        SimulationTime += dt;
+
         int colonyCount = _colonies.Count;
         for (int i = 0; i < colonyCount; i++)
         {
+            _colonies[i].PheromoneGrid.DecayStep(dt);
+        }
+
+        for (int i = 0; i < colonyCount; i++)
+        {
             Colony colony = _colonies[i];
-            UpdateColony(colony);
+            SpawnSystem.Tick(colony, this, dt);
+
+            IReadOnlyList<Ant> ants = colony.Ants;
+            int antCount = ants.Count;
+            for (int j = 0; j < antCount; j++)
+            {
+                Ant ant = ants[j];
+                if (ant.IsDead)
+                {
+                    continue;
+                }
+                AntBehavior.Update(ant, colony, this, dt);
+            }
+
+            colony.RemoveDeadAnts();
+            colony.RecountRoles();
+            colony.UpdateProtectedRadius();
+            colony.UpdateNestHealth(this, dt);
+            colony.UpdateSignals(dt);
+            colony.TickAge(dt);
+            colony.Stats.Tick(colony, dt);
+        }
+
+        DespawnDeadColonies();
+    }
+
+    private void DespawnDeadColonies()
+    {
+        for (int i = _colonies.Count - 1; i >= 0; i--)
+        {
+            Colony colony = _colonies[i];
+            if (colony.IsNestDead)
+            {
+                int remainingFood = colony.NestFood;
+                colony.MarkDead("overrun", SimulationTime);
+                ClearNestCells(colony);
+                ScatterFoodAtNest(colony, remainingFood);
+                _colonies.RemoveAt(i);
+                _deadColonies.Add(colony);
+                continue;
+            }
+            if (colony.Ants.Count == 0 && colony.NestFood == 0)
+            {
+                colony.MarkDead("starved", SimulationTime);
+                ClearNestCells(colony);
+                _colonies.RemoveAt(i);
+                _deadColonies.Add(colony);
+            }
         }
     }
 
-    private void UpdateColony(Colony colony)
+    private void ScatterFoodAtNest(Colony colony, int totalFood)
     {
-        colony.SpawnCounter++;
-        if (colony.SpawnCounter >= SpawnIntervalTicks)
+        if (totalFood <= 0)
         {
-            colony.SpawnCounter = 0;
-            if (colony.Ants.Count < colony.MaxAnts)
+            return;
+        }
+
+        int cellCount = 0;
+        for (int dy = -NestRadius; dy <= NestRadius; dy++)
+        {
+            for (int dx = -NestRadius; dx <= NestRadius; dx++)
             {
-                float spawnX = colony.NestX + 0.5f;
-                float spawnY = colony.NestY + 0.5f;
-                float heading = (float)(_random.NextDouble() * Math.PI * 2);
-                colony.SpawnAnt(spawnX, spawnY, heading, AntRole.Scout);
+                int manhattan = Math.Abs(dx) + Math.Abs(dy);
+                if (manhattan > NestRadius)
+                {
+                    continue;
+                }
+                int cx = colony.NestX + dx;
+                int cy = colony.NestY + dy;
+                if (cx < 0 || cx >= Width)
+                {
+                    continue;
+                }
+                if (cy < 0 || cy >= Height)
+                {
+                    continue;
+                }
+                cellCount++;
             }
         }
 
-        IReadOnlyList<Ant> ants = colony.Ants;
-        int antCount = ants.Count;
-        for (int j = 0; j < antCount; j++)
+        if (cellCount == 0)
         {
-            Ant ant = ants[j];
-            AntBehavior.Update(ant, colony, this);
+            return;
+        }
+
+        float perCell = (float)totalFood / (float)cellCount;
+        for (int dy = -NestRadius; dy <= NestRadius; dy++)
+        {
+            for (int dx = -NestRadius; dx <= NestRadius; dx++)
+            {
+                int manhattan = Math.Abs(dx) + Math.Abs(dy);
+                if (manhattan > NestRadius)
+                {
+                    continue;
+                }
+                int cx = colony.NestX + dx;
+                int cy = colony.NestY + dy;
+                if (cx < 0 || cx >= Width)
+                {
+                    continue;
+                }
+                if (cy < 0 || cy >= Height)
+                {
+                    continue;
+                }
+
+                if (_cells[cx, cy] == CellType.Food)
+                {
+                    _foodAmount[cx, cy] += perCell;
+                }
+                else if (_cells[cx, cy] == CellType.Empty)
+                {
+                    _cells[cx, cy] = CellType.Food;
+                    _foodAmount[cx, cy] = perCell;
+                    AddFoodCell(cx, cy);
+                }
+            }
+        }
+
+        colony.NestFood = 0;
+    }
+
+    private void ClearNestCells(Colony colony)
+    {
+        for (int dy = -NestRadius; dy <= NestRadius; dy++)
+        {
+            for (int dx = -NestRadius; dx <= NestRadius; dx++)
+            {
+                int manhattan = Math.Abs(dx) + Math.Abs(dy);
+                if (manhattan > NestRadius)
+                {
+                    continue;
+                }
+                int cellX = colony.NestX + dx;
+                int cellY = colony.NestY + dy;
+                if (cellX < 0 || cellX >= Width)
+                {
+                    continue;
+                }
+                if (cellY < 0 || cellY >= Height)
+                {
+                    continue;
+                }
+                _nestOwnerCells[cellX, cellY] = 0;
+                if (_cells[cellX, cellY] == CellType.Nest)
+                {
+                    _cells[cellX, cellY] = CellType.Empty;
+                }
+            }
         }
     }
 
@@ -91,51 +281,82 @@ public class World
         return (float)_random.NextDouble();
     }
 
-    public bool IsBlocked(float x, float y, int selfCellX, int selfCellY, Colony colony)
+    public int GetNestOwner(int cellX, int cellY)
     {
-        if (x < 0f || x >= Width)
+        if (cellX < 0 || cellX >= Width)
         {
-            return true;
+            return 0;
         }
-        if (y < 0f || y >= Height)
+        if (cellY < 0 || cellY >= Height)
         {
-            return true;
+            return 0;
         }
+        return _nestOwnerCells[cellX, cellY];
+    }
 
-        int cellX = (int)x;
-        int cellY = (int)y;
+    public Colony? GetColonyById(int colonyId)
+    {
+        int index = colonyId - 1;
+        if (index < 0 || index >= _colonies.Count)
+        {
+            return null;
+        }
+        return _colonies[index];
+    }
 
-        if (cellX == selfCellX && cellY == selfCellY)
+    public bool IsEnemyNest(int cellX, int cellY, int colonyId)
+    {
+        if (cellX < 0 || cellX >= Width)
         {
             return false;
         }
-
+        if (cellY < 0 || cellY >= Height)
+        {
+            return false;
+        }
         int owner = _nestOwnerCells[cellX, cellY];
-
-        if (owner != 0 && owner != colony.Id)
-        {
-            return true;
-        }
-        if (owner == 0 && _antOccupancy[cellX, cellY])
-        {
-            return true;
-        }
-        return false;
+        return owner != 0 && owner != colonyId;
     }
 
-    public void UpdateAntOccupancy(int oldCellX, int oldCellY, int newCellX, int newCellY)
+    public int GetAntDensity(int x, int y)
     {
-        if (newCellX == oldCellX && newCellY == oldCellY)
+        if (x < 0 || x >= Width)
+        {
+            return 0;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return 0;
+        }
+        return _antDensity[x, y];
+    }
+
+    public void IncrementDensity(int x, int y)
+    {
+        if (x < 0 || x >= Width)
         {
             return;
         }
-        if (_antOccupancy[oldCellX, oldCellY])
+        if (y < 0 || y >= Height)
         {
-            _antOccupancy[oldCellX, oldCellY] = false;
+            return;
         }
-        if (_nestOwnerCells[newCellX, newCellY] == 0)
+        _antDensity[x, y]++;
+    }
+
+    public void DecrementDensity(int x, int y)
+    {
+        if (x < 0 || x >= Width)
         {
-            _antOccupancy[newCellX, newCellY] = true;
+            return;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return;
+        }
+        if (_antDensity[x, y] > 0)
+        {
+            _antDensity[x, y]--;
         }
     }
 
@@ -152,6 +373,19 @@ public class World
         return _cells[x, y];
     }
 
+    public float GetFoodAmount(int x, int y)
+    {
+        if (x < 0 || x >= Width)
+        {
+            return 0f;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return 0f;
+        }
+        return _foodAmount[x, y];
+    }
+
     public void SetCell(int x, int y, CellType type)
     {
         if (x < 0 || x >= Width)
@@ -162,8 +396,16 @@ public class World
         {
             return;
         }
+        if (type == CellType.Nest)
+        {
+            return;
+        }
 
         CellType oldType = _cells[x, y];
+        if (oldType == CellType.Nest)
+        {
+            return;
+        }
         if (oldType == type)
         {
             return;
@@ -173,14 +415,72 @@ public class World
 
         if (type == CellType.Food)
         {
+            _foodAmount[x, y] = 1f;
             AddFoodCell(x, y);
             return;
         }
 
         if (oldType == CellType.Food)
         {
+            _foodAmount[x, y] = 0f;
             RemoveFoodCell(x, y);
         }
+    }
+
+    public void DropFoodFromDeadAnt(int x, int y, int carryingFood)
+    {
+        if (carryingFood <= 0)
+        {
+            return;
+        }
+        if (x < 0 || x >= Width)
+        {
+            return;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return;
+        }
+        if (_cells[x, y] == CellType.Nest)
+        {
+            return;
+        }
+
+        float amount = (float)carryingFood;
+        if (_cells[x, y] == CellType.Food)
+        {
+            _foodAmount[x, y] += amount;
+            return;
+        }
+
+        _cells[x, y] = CellType.Food;
+        _foodAmount[x, y] = amount;
+        AddFoodCell(x, y);
+    }
+
+    public bool TakeFood(int x, int y)
+    {
+        if (x < 0 || x >= Width)
+        {
+            return false;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return false;
+        }
+        if (_cells[x, y] != CellType.Food)
+        {
+            return false;
+        }
+
+        _foodAmount[x, y] -= FoodPickupAmount;
+        if (_foodAmount[x, y] <= 0f)
+        {
+            _foodAmount[x, y] = 0f;
+            _cells[x, y] = CellType.Empty;
+            RemoveFoodCell(x, y);
+        }
+        return true;
     }
 
     private void AddFoodCell(int x, int y)
@@ -222,7 +522,7 @@ public class World
         }
 
         int newId = _colonies.Count + 1;
-        Colony newColony = new Colony(newId, x, y, color);
+        Colony newColony = new Colony(newId, x, y, color, Width, Height, _random);
         _colonies.Add(newColony);
         MarkNestCells(newColony);
     }
@@ -248,7 +548,14 @@ public class World
                 {
                     continue;
                 }
+                if (_cells[cellX, cellY] == CellType.Food)
+                {
+                    _foodAmount[cellX, cellY] = 0f;
+                    RemoveFoodCell(cellX, cellY);
+                }
+                _cells[cellX, cellY] = CellType.Nest;
                 _nestOwnerCells[cellX, cellY] = colony.Id;
+                colony.PheromoneGrid.MarkPermanentHome(cellX, cellY);
             }
         }
     }

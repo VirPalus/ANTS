@@ -2,76 +2,99 @@ namespace ANTS;
 
 public static class AntBehavior
 {
-    private const float ScoutSpeedCellsPerSecond = 4.8f;
-    private const float ScoutSpeed = ScoutSpeedCellsPerSecond / World.SimHz;
+    private const float VisionHardOverride = 0.7f;
 
-    private const float ScoutWanderRadPerSecond = 12f;
-    private const float ScoutWander = ScoutWanderRadPerSecond / World.SimHz;
-
-    private const float BounceJitter = 0.8f;
-
-    private const float StridePhasePerCell = 4f;
-
-    public static void Update(Ant ant, Colony colony, World world)
+    public static void Update(Ant ant, Colony colony, World world, float dt)
     {
-        if (ant.Role == AntRole.Scout)
+        if (ant.IsDead)
         {
-            UpdateScout(ant, colony, world);
+            return;
         }
+
+        ant.Age += dt;
+        ant.InternalClock += dt;
+        ant.SensorCooldown -= dt;
+        ant.DepositCooldown -= dt;
+        ant.VisionCooldown -= dt;
+        CombatSystem.DecrementCooldown(ant, dt);
+
+        ant.Role.UpdateGoal(ant, colony, world);
+
+        if (ant.VisionCooldown <= 0f)
+        {
+            VisionSystem.Scan(ant, colony, world);
+            ant.VisionCooldown = ant.Role.VisionInterval;
+        }
+
+        if (ant.SensorCooldown <= 0f)
+        {
+            SensorSystem.Sense(ant, colony, world);
+            ant.SensorCooldown = ant.Role.SensorInterval;
+        }
+
+        ApplyVisionBlend(ant);
+        ApplyLeash(ant, colony);
+
+        SteeringSystem.UpdateHeading(ant, dt);
+        MovementSystem.Move(ant, colony, world, dt);
+
+        if (ant.DepositCooldown <= 0f)
+        {
+            DepositSystem.Drop(ant, colony, world);
+            EnemyDetectionSystem.Tick(ant, colony, world);
+            ant.DepositCooldown = ant.Role.DepositInterval;
+        }
+
+        CombatSystem.Tick(ant, colony, world);
+        GoalEventSystem.Check(ant, colony, world);
+        AutonomySystem.Check(ant, colony, world);
     }
 
-    private static void UpdateScout(Ant ant, Colony colony, World world)
+    private static void ApplyLeash(Ant ant, Colony colony)
     {
-        float wander = (world.NextRandomFloat() - 0.5f) * 2f * ScoutWander;
-        ant.Heading += wander;
-        TryMoveForward(ant, colony, world, ScoutSpeed);
+        float leash = ant.Role.GetEffectiveLeash(ant, colony);
+        if (leash <= 0f)
+        {
+            return;
+        }
+        if (ant.VisionStrength > 0.3f)
+        {
+            return;
+        }
+
+        float dx = ant.X - (colony.NestX + 0.5f);
+        float dy = ant.Y - (colony.NestY + 0.5f);
+        float distSq = dx * dx + dy * dy;
+        float leashSq = leash * leash;
+        if (distSq <= leashSq)
+        {
+            return;
+        }
+
+        float toNestAngle = (float)Math.Atan2(-dy, -dx);
+        ant.CachedSteerAngle = toNestAngle;
     }
 
-    private static void TryMoveForward(Ant ant, Colony colony, World world, float speed)
+    private static void ApplyVisionBlend(Ant ant)
     {
-        float newX = ant.X + (float)Math.Cos(ant.Heading) * speed;
-        float newY = ant.Y + (float)Math.Sin(ant.Heading) * speed;
-
-        bool hitsVerticalWall = newX < 0f || newX >= world.Width;
-        bool hitsHorizontalWall = newY < 0f || newY >= world.Height;
-
-        if (hitsVerticalWall && hitsHorizontalWall)
+        if (ant.VisionStrength <= 0f)
         {
-            ant.Heading += (float)Math.PI;
-            return;
-        }
-        if (hitsVerticalWall)
-        {
-            ant.Heading = (float)Math.PI - ant.Heading;
-            return;
-        }
-        if (hitsHorizontalWall)
-        {
-            ant.Heading = -ant.Heading;
             return;
         }
 
-        int oldCellX = (int)ant.X;
-        int oldCellY = (int)ant.Y;
-
-        if (world.IsBlocked(newX, newY, oldCellX, oldCellY, colony))
+        if (ant.VisionStrength >= VisionHardOverride)
         {
-            BounceRandomly(ant, world);
+            ant.CachedSteerAngle = ant.VisionSteerAngle;
             return;
         }
 
-        int newCellX = (int)newX;
-        int newCellY = (int)newY;
-
-        world.UpdateAntOccupancy(oldCellX, oldCellY, newCellX, newCellY);
-
-        ant.X = newX;
-        ant.Y = newY;
-        ant.StridePhase += speed * StridePhasePerCell;
-    }
-
-    private static void BounceRandomly(Ant ant, World world)
-    {
-        ant.Heading += (float)Math.PI + (world.NextRandomFloat() - 0.5f) * BounceJitter;
+        float w = ant.VisionStrength;
+        float pheroCos = (float)Math.Cos(ant.CachedSteerAngle);
+        float pheroSin = (float)Math.Sin(ant.CachedSteerAngle);
+        float visionCos = (float)Math.Cos(ant.VisionSteerAngle);
+        float visionSin = (float)Math.Sin(ant.VisionSteerAngle);
+        float blendedCos = pheroCos * (1f - w) + visionCos * w;
+        float blendedSin = pheroSin * (1f - w) + visionSin * w;
+        ant.CachedSteerAngle = (float)Math.Atan2(blendedSin, blendedCos);
     }
 }

@@ -5,11 +5,14 @@
         "gridlijnen",
         "Hwnd",
         "infintie",
+        "phero",
         "playfield",
         "Premul",
         "rects",
         "Rects",
+        "scos",
         "SKGL",
-        "Skia"
+        "Skia",
+        "ssin"
     ]
 }

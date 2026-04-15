@@ -11,10 +11,34 @@ public partial class Engine : Form
 {
     private const int CellSize = 16;
     private const int BorderThickness = 8;
-    private const int WorldPercent = 80;
+    private const int WorldPercent = 75;
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
+
+    private const float FoodGreenR = 34f / 255f;
+    private const float FoodGreenG = 197f / 255f;
+    private const float FoodGreenB = 94f / 255f;
+
+    private const float PheromoneOverlayCutoff = 0.03f;
+    private const float PheromoneOverlayMaxAlpha = 160f;
+
+    private const int StatsPanelWidth = 260;
+    private const int StatsCardHeight = 230;
+    private const int StatsCardSpacing = 8;
+    private const int StatsCardPadding = 10;
+    private const int StatsHeaderHeight = 10;
+    private const int StatsGraphHeight = 44;
+    private const int StatsLineHeight = 16;
+    private const int StatsRoleBarHeight = 6;
+    private const int StatsRoleBarWidth = 80;
+
+    private static readonly SKColor ScoutBarColor = new SKColor(96, 165, 250);
+    private static readonly SKColor ForagerBarColor = new SKColor(251, 191, 36);
+    private static readonly SKColor DefenderBarColor = new SKColor(239, 68, 68);
+    private static readonly SKColor AttackerBarColor = new SKColor(168, 85, 247);
+    private static readonly SKColor DefenseBarColor = new SKColor(220, 38, 38);
+    private static readonly SKColor OffenseBarColor = new SKColor(234, 179, 8);
 
     private static readonly Color[] ColonyColors = new Color[]
     {
@@ -39,6 +63,7 @@ public partial class Engine : Form
     private int _mouseX;
     private int _mouseY;
     private bool _isDrawingFood;
+    private bool _showPheromones;
 
     private readonly Stopwatch _fpsStopwatch = new Stopwatch();
     private int _framesThisSecond;
@@ -353,6 +378,12 @@ public partial class Engine : Form
         CacheButtonTextPosition(addFoodButton);
         _buttons.Add(addFoodButton);
 
+        int pheromoneX = addFoodX + ButtonWidth + ButtonPadding;
+        Rectangle pheromoneBounds = new Rectangle(pheromoneX, buttonY, ButtonWidth, ButtonHeight);
+        UiButton pheromoneButton = new UiButton(pheromoneBounds, "Pheromones", buttonBackground, TogglePheromones);
+        CacheButtonTextPosition(pheromoneButton);
+        _buttons.Add(pheromoneButton);
+
         RecordButtonsPicture();
     }
 
@@ -424,6 +455,11 @@ public partial class Engine : Form
         _placingMode = PlacingMode.Food;
         _isDrawingFood = false;
         Cursor = Cursors.Cross;
+    }
+
+    private void TogglePheromones()
+    {
+        _showPheromones = !_showPheromones;
     }
 
     private void CancelPlacing()
@@ -566,6 +602,7 @@ public partial class Engine : Form
 
         Span<Ant> antsSpan = CollectionsMarshal.AsSpan(antsList);
         SKRect[] frameRects = AntRenderer.FrameSpriteRects;
+        SKRect[] frameRectsFood = AntRenderer.FrameSpriteRectsWithFood;
         SKRect[] bodySprites = _antBodySprites;
         SKRotationScaleMatrix[] bodyTransforms = _antBodyTransforms;
 
@@ -583,14 +620,16 @@ public partial class Engine : Form
             float heading = ant.Heading;
             float headingCos = (float)Math.Cos(heading);
             float headingSin = (float)Math.Sin(heading);
-            float scos = headingCos * invSup;
-            float ssin = headingSin * invSup;
+            float scale = invSup * ant.Role.VisualScale;
+            float scos = headingCos * scale;
+            float ssin = headingSin * scale;
             float tx = centerX - scos * anchor + ssin * anchor;
             float ty = centerY - ssin * anchor - scos * anchor;
             bodyTransforms[i] = new SKRotationScaleMatrix(scos, ssin, tx, ty);
 
             int frameIndex = AntRenderer.GetFrameIndex(ant.StridePhase);
-            bodySprites[i] = frameRects[frameIndex];
+            bool hasFood = ant.CarryingFood > 0;
+            bodySprites[i] = hasFood ? frameRectsFood[frameIndex] : frameRects[frameIndex];
         }
 
         ApplyBodyTint(colonyColor);
@@ -605,7 +644,20 @@ public partial class Engine : Form
             return;
         }
         _antBodyColorFilter?.Dispose();
-        _antBodyColorFilter = SKColorFilter.CreateBlendMode(colonyColor, SKBlendMode.Modulate);
+
+        float colR = colonyColor.Red / 255f;
+        float colG = colonyColor.Green / 255f;
+        float colB = colonyColor.Blue / 255f;
+
+        float[] matrix = new float[]
+        {
+            FoodGreenR, colR - FoodGreenR, 0f, 0f, 0f,
+            FoodGreenG, colG - FoodGreenG, 0f, 0f, 0f,
+            FoodGreenB, colB - FoodGreenB, 0f, 0f, 0f,
+            0f,         0f,                0f, 1f, 0f
+        };
+
+        _antBodyColorFilter = SKColorFilter.CreateColorMatrix(matrix);
         _antBodyColorFilterCachedColor = packedColor;
         _antPaint.ColorFilter = _antBodyColorFilter;
     }
@@ -620,6 +672,283 @@ public partial class Engine : Form
         {
             _antBodySprites = new SKRect[antCount];
         }
+    }
+
+
+    private void DrawPheromoneOverlay(SKCanvas canvas)
+    {
+        IReadOnlyList<Colony> colonies = _world.Colonies;
+        int colonyCount = colonies.Count;
+        int worldWidth = _world.Width;
+        int worldHeight = _world.Height;
+
+        for (int x = 0; x < worldWidth; x++)
+        {
+            for (int y = 0; y < worldHeight; y++)
+            {
+                float bestHome = 0f;
+                float bestFood = 0f;
+                byte homeR = 0;
+                byte homeG = 0;
+                byte homeB = 0;
+
+                for (int c = 0; c < colonyCount; c++)
+                {
+                    Colony colony = colonies[c];
+                    PheromoneGrid grid = colony.PheromoneGrid;
+
+                    float h = grid.Get(PheromoneChannel.HomeTrail, x, y);
+                    if (h > bestHome)
+                    {
+                        bestHome = h;
+                        homeR = colony.CachedSkColor.Red;
+                        homeG = colony.CachedSkColor.Green;
+                        homeB = colony.CachedSkColor.Blue;
+                    }
+
+                    float f = grid.Get(PheromoneChannel.FoodTrail, x, y);
+                    if (f > bestFood)
+                    {
+                        bestFood = f;
+                    }
+                }
+
+                float pixelX = _gridX + x * CellSize;
+                float pixelY = _gridY + y * CellSize;
+
+                if (bestHome > PheromoneOverlayCutoff)
+                {
+                    int raw = (int)(bestHome * PheromoneOverlayMaxAlpha);
+                    if (raw > PheromoneOverlayMaxAlpha)
+                    {
+                        raw = (int)PheromoneOverlayMaxAlpha;
+                    }
+                    _fillPaint.Color = new SKColor(homeR, homeG, homeB, (byte)raw);
+                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
+                }
+
+                if (bestFood > PheromoneOverlayCutoff)
+                {
+                    int raw = (int)(bestFood * PheromoneOverlayMaxAlpha);
+                    if (raw > PheromoneOverlayMaxAlpha)
+                    {
+                        raw = (int)PheromoneOverlayMaxAlpha;
+                    }
+                    _fillPaint.Color = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B, (byte)raw);
+                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
+                }
+            }
+        }
+    }
+
+    private void DrawStatsPanel(SKCanvas canvas)
+    {
+        IReadOnlyList<Colony> colonies = _world.Colonies;
+        IReadOnlyList<Colony> dead = _world.DeadColonies;
+        int aliveCount = colonies.Count;
+        int deadCount = dead.Count;
+        if (aliveCount + deadCount == 0)
+        {
+            return;
+        }
+
+        int panelX = ClientSize.Width - StatsPanelWidth - ButtonPadding;
+        int panelY = ButtonPadding;
+        int row = 0;
+
+        for (int i = 0; i < aliveCount; i++)
+        {
+            Colony colony = colonies[i];
+            int cardY = panelY + row * (StatsCardHeight + StatsCardSpacing);
+            DrawStatsCard(canvas, colony, panelX, cardY);
+            row++;
+        }
+
+        for (int i = 0; i < deadCount; i++)
+        {
+            Colony colony = dead[i];
+            int cardY = panelY + row * (StatsCardHeight + StatsCardSpacing);
+            DrawStatsCard(canvas, colony, panelX, cardY);
+            DrawDeadCardOverlay(canvas, colony, panelX, cardY);
+            row++;
+        }
+    }
+
+    private void DrawDeadCardOverlay(SKCanvas canvas, Colony colony, int x, int y)
+    {
+        _fillPaint.Color = new SKColor(0, 0, 0, 160);
+        canvas.DrawRect(x, y, StatsPanelWidth, StatsCardHeight, _fillPaint);
+
+        string deathLabel = "DEAD - " + colony.DeathReason;
+        float textWidth = _textPaint.MeasureText(deathLabel);
+        float labelX = x + (StatsPanelWidth - textWidth) / 2f;
+        float labelY = y + StatsCardHeight / 2f + 5f;
+        _textPaint.Color = new SKColor(220, 38, 38);
+        canvas.DrawText(deathLabel, labelX, labelY, _textPaint);
+        _textPaint.Color = SKColors.White;
+    }
+
+    private void DrawStatsCard(SKCanvas canvas, Colony colony, int x, int y)
+    {
+        _fillPaint.Color = new SKColor(30, 30, 30, 230);
+        canvas.DrawRect(x, y, StatsPanelWidth, StatsCardHeight, _fillPaint);
+
+        _fillPaint.Color = new SKColor(45, 45, 45, 220);
+        canvas.DrawRect(x, y, StatsPanelWidth, StatsHeaderHeight, _fillPaint);
+
+        float healthFraction = colony.NestHealthFraction;
+        if (healthFraction < 0f)
+        {
+            healthFraction = 0f;
+        }
+        if (healthFraction > 1f)
+        {
+            healthFraction = 1f;
+        }
+        int healthWidth = (int)(StatsPanelWidth * healthFraction);
+        if (healthWidth > 0)
+        {
+            _fillPaint.Color = colony.CachedSkColor;
+            canvas.DrawRect(x, y, healthWidth, StatsHeaderHeight, _fillPaint);
+        }
+
+        int textX = x + StatsCardPadding;
+        int textY = y + StatsHeaderHeight + 16;
+
+        string headerLine = "Ants " + colony.Ants.Count + "   Food " + colony.NestFood;
+        canvas.DrawText(headerLine, textX, textY, _textPaint);
+
+        int graphX = textX;
+        int graphY = textY + 6;
+        int graphWidth = StatsPanelWidth - StatsCardPadding * 2;
+        DrawPopulationGraph(canvas, colony, graphX, graphY, graphWidth, StatsGraphHeight);
+
+        int rolesY = graphY + StatsGraphHeight + 12;
+        DrawRoleBreakdown(canvas, colony, textX, rolesY);
+
+        int intentY = rolesY + StatsLineHeight * 4 + 6;
+        DrawQueenIntent(canvas, colony, textX, intentY);
+    }
+
+    private void DrawRoleBreakdown(SKCanvas canvas, Colony colony, int x, int y)
+    {
+        int total = colony.Ants.Count;
+        if (total < 1)
+        {
+            total = 1;
+        }
+        DrawRoleRow(canvas, "Scouts:    ", colony.ScoutCount, total, ScoutBarColor, x, y);
+        DrawRoleRow(canvas, "Foragers:  ", colony.ForagerCount, total, ForagerBarColor, x, y + StatsLineHeight);
+        DrawRoleRow(canvas, "Defenders: ", colony.DefenderCount, total, DefenderBarColor, x, y + StatsLineHeight * 2);
+        DrawRoleRow(canvas, "Attackers: ", colony.AttackerCount, total, AttackerBarColor, x, y + StatsLineHeight * 3);
+    }
+
+    private void DrawRoleRow(SKCanvas canvas, string label, int count, int total, SKColor barColor, int x, int y)
+    {
+        string text = label + count;
+        canvas.DrawText(text, x, y + 11, _textPaint);
+
+        int barX = x + 110;
+        int barY = y + 4;
+        _fillPaint.Color = new SKColor(55, 55, 55, 220);
+        canvas.DrawRect(barX, barY, StatsRoleBarWidth, StatsRoleBarHeight, _fillPaint);
+
+        float fraction = (float)count / (float)total;
+        int filledWidth = (int)(fraction * StatsRoleBarWidth);
+        if (filledWidth > 0)
+        {
+            _fillPaint.Color = barColor;
+            canvas.DrawRect(barX, barY, filledWidth, StatsRoleBarHeight, _fillPaint);
+        }
+    }
+
+    private void DrawQueenIntent(SKCanvas canvas, Colony colony, int x, int y)
+    {
+        QueenIntent intent = colony.RoleQuota.GetCurrentIntent(colony);
+        string intentLine = "Queen: " + intent.Plan;
+        canvas.DrawText(intentLine, x, y + 11, _textPaint);
+
+        int defenseY = y + StatsLineHeight;
+        DrawSignalBar(canvas, "Defense:", colony.Defense, DefenseBarColor, x, defenseY);
+
+        int offenseY = defenseY + StatsLineHeight;
+        DrawSignalBar(canvas, "Offense:", colony.Offense, OffenseBarColor, x, offenseY);
+    }
+
+    private void DrawSignalBar(SKCanvas canvas, string label, float value, SKColor barColor, int x, int y)
+    {
+        canvas.DrawText(label, x, y + 11, _textPaint);
+        int barX = x + 56;
+        int barY = y + 4;
+        int barWidth = StatsRoleBarWidth + 34;
+        _fillPaint.Color = new SKColor(55, 55, 55, 220);
+        canvas.DrawRect(barX, barY, barWidth, StatsRoleBarHeight, _fillPaint);
+
+        int filled = (int)(value * barWidth);
+        if (filled > 0)
+        {
+            _fillPaint.Color = barColor;
+            canvas.DrawRect(barX, barY, filled, StatsRoleBarHeight, _fillPaint);
+        }
+    }
+
+    private void DrawPopulationGraph(SKCanvas canvas, Colony colony, int x, int y, int width, int height)
+    {
+        _fillPaint.Color = new SKColor(20, 20, 20, 200);
+        canvas.DrawRect(x, y, width, height, _fillPaint);
+
+        ColonyStats stats = colony.Stats;
+        int samples = stats.ValidSamples;
+        if (samples < 2)
+        {
+            return;
+        }
+
+        int maxPopulation = stats.GetMaxPopulation();
+        if (maxPopulation < 1)
+        {
+            maxPopulation = 1;
+        }
+
+        using SKPath fillPath = new SKPath();
+        using SKPath linePath = new SKPath();
+
+        float stepX = (float)width / (float)(ColonyStats.SampleCount - 1);
+        float bottom = y + height;
+
+        for (int i = 0; i < samples; i++)
+        {
+            float px = x + i * stepX;
+            int pop = stats.GetPopulationAt(i);
+            float py = bottom - (pop / (float)maxPopulation) * height;
+            if (i == 0)
+            {
+                fillPath.MoveTo(px, bottom);
+                fillPath.LineTo(px, py);
+                linePath.MoveTo(px, py);
+            }
+            else
+            {
+                fillPath.LineTo(px, py);
+                linePath.LineTo(px, py);
+            }
+        }
+
+        float lastX = x + (samples - 1) * stepX;
+        fillPath.LineTo(lastX, bottom);
+        fillPath.Close();
+
+        SKColor colonyColor = colony.CachedSkColor;
+        _fillPaint.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 90);
+        canvas.DrawPath(fillPath, _fillPaint);
+
+        _strokePaint.Color = colony.CachedSkColor;
+        _strokePaint.StrokeWidth = 2f;
+        _strokePaint.IsAntialias = true;
+        canvas.DrawPath(linePath, _strokePaint);
+        _strokePaint.IsAntialias = false;
+        _strokePaint.StrokeWidth = 1f;
+        _strokePaint.Color = _buttonBorderSkColor;
     }
 
     private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
@@ -661,22 +990,35 @@ public partial class Engine : Form
         canvas.DrawPicture(_gridPicture);
         canvas.Restore();
 
+        if (_showPheromones)
+        {
+            DrawPheromoneOverlay(canvas);
+        }
+
         int foodCount = _world.FoodCount;
         if (foodCount > 0)
         {
-            _foodPath.Reset();
             Point[] foodCells = _world.FoodCells;
             for (int i = 0; i < foodCount; i++)
             {
                 int cellX = foodCells[i].X;
                 int cellY = foodCells[i].Y;
+                float amount = _world.GetFoodAmount(cellX, cellY);
+                float rawAlpha = amount * 255f;
+                if (rawAlpha > 255f)
+                {
+                    rawAlpha = 255f;
+                }
+                byte alpha = (byte)rawAlpha;
+                if (alpha < 10)
+                {
+                    alpha = 10;
+                }
+                _fillPaint.Color = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B, alpha);
                 float pixelX = _gridX + cellX * CellSize;
                 float pixelY = _gridY + cellY * CellSize;
-                _foodPath.AddRect(new SKRect(pixelX, pixelY, pixelX + CellSize, pixelY + CellSize));
+                canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
             }
-
-            _fillPaint.Color = _foodSkColor;
-            canvas.DrawPath(_foodPath, _fillPaint);
         }
 
         IReadOnlyList<Colony> colonies = _world.Colonies;
@@ -725,6 +1067,8 @@ public partial class Engine : Form
                 canvas.DrawRect(ghostPixelX, ghostPixelY, CellSize, CellSize, _fillPaint);
             }
         }
+
+        DrawStatsPanel(canvas);
 
         canvas.DrawPicture(_buttonsPicture);
         canvas.DrawPicture(_hudPicture);

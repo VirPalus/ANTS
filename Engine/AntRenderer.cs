@@ -50,7 +50,11 @@ public static class AntRenderer
     public const float AtlasAnchor = 96f;
     public const float AtlasInverseSupersample = 1f / AtlasSupersample;
 
-    private static readonly SKRect[] _frameSpriteRects = BuildFrameSpriteRects();
+    private const float FoodDotX = 6.8f;
+    private const float FoodDotRadius = 1.8f;
+
+    private static readonly SKRect[] _frameSpriteRects = BuildFrameSpriteRects(0);
+    private static readonly SKRect[] _frameSpriteRectsWithFood = BuildFrameSpriteRects(1);
     private static readonly SKImage _bodyAtlasImage = BuildBodyAtlas();
 
     public static SKImage BodyAtlasImage
@@ -63,14 +67,21 @@ public static class AntRenderer
         get { return _frameSpriteRects; }
     }
 
-    private static SKRect[] BuildFrameSpriteRects()
+    public static SKRect[] FrameSpriteRectsWithFood
+    {
+        get { return _frameSpriteRectsWithFood; }
+    }
+
+    private static SKRect[] BuildFrameSpriteRects(int row)
     {
         SKRect[] rects = new SKRect[StrideFrameCount];
+        float top = row * AtlasFrameSizePixels;
+        float bottom = top + AtlasFrameSizePixels;
         for (int i = 0; i < StrideFrameCount; i++)
         {
             float left = i * AtlasFrameSizePixels;
             float right = left + AtlasFrameSizePixels;
-            rects[i] = new SKRect(left, 0f, right, AtlasFrameSizePixels);
+            rects[i] = new SKRect(left, top, right, bottom);
         }
         return rects;
     }
@@ -118,7 +129,8 @@ public static class AntRenderer
     private static SKImage BuildBodyAtlas()
     {
         int totalWidth = AtlasFrameSizePixels * StrideFrameCount;
-        SKImageInfo info = new SKImageInfo(totalWidth, AtlasFrameSizePixels, SKColorType.Rgba8888, SKAlphaType.Premul);
+        int totalHeight = AtlasFrameSizePixels * 2;
+        SKImageInfo info = new SKImageInfo(totalWidth, totalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
         using SKSurface surface = SKSurface.Create(info);
         SKCanvas canvas = surface.Canvas;
         canvas.Clear(SKColors.Transparent);
@@ -137,20 +149,34 @@ public static class AntRenderer
         strokePaint.IsAntialias = true;
         strokePaint.Color = SKColors.White;
 
-        for (int frameIndex = 0; frameIndex < StrideFrameCount; frameIndex++)
+        using SKPaint foodPaint = new SKPaint();
+        foodPaint.Style = SKPaintStyle.Fill;
+        foodPaint.IsAntialias = true;
+        foodPaint.Color = new SKColor(255, 0, 0);
+
+        for (int row = 0; row < 2; row++)
         {
-            canvas.Save();
-            float frameOriginX = frameIndex * AtlasFrameSizePixels + AtlasAnchor;
-            canvas.Translate(frameOriginX, AtlasAnchor);
-            canvas.Scale(AtlasSupersample, AtlasSupersample);
+            float rowOffsetY = row * AtlasFrameSizePixels;
+            for (int frameIndex = 0; frameIndex < StrideFrameCount; frameIndex++)
+            {
+                canvas.Save();
+                float frameOriginX = frameIndex * AtlasFrameSizePixels + AtlasAnchor;
+                canvas.Translate(frameOriginX, rowOffsetY + AtlasAnchor);
+                canvas.Scale(AtlasSupersample, AtlasSupersample);
 
-            float stridePhase = frameIndex * TwoPi / StrideFrameCount;
-            using SKPath strokeTemplate = BuildBodyStrokeTemplate(stridePhase);
+                float stridePhase = frameIndex * TwoPi / StrideFrameCount;
+                using SKPath strokeTemplate = BuildBodyStrokeTemplate(stridePhase);
 
-            canvas.DrawPath(fillTemplate, fillPaint);
-            canvas.DrawPath(strokeTemplate, strokePaint);
+                canvas.DrawPath(fillTemplate, fillPaint);
+                canvas.DrawPath(strokeTemplate, strokePaint);
 
-            canvas.Restore();
+                if (row == 1)
+                {
+                    canvas.DrawCircle(FoodDotX, 0f, FoodDotRadius, foodPaint);
+                }
+
+                canvas.Restore();
+            }
         }
 
         return surface.Snapshot();
@@ -162,4 +188,5 @@ public static class AntRenderer
         int floored = (int)scaled;
         return floored & StrideFrameIndexMask;
     }
+
 }
