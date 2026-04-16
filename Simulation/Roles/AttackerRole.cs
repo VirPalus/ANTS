@@ -18,9 +18,9 @@ public class AttackerRole : AntRole
         DepositInterval = 0.2f;
         SensorInterval = 0.20f;
         AutonomyMax = 350f;
-        ExplorationRate = 0.015f;
-        GradientThreshold = 0.003f;
-        DensityPenalty = 0.030f;
+        ExplorationRate = 0.10f;
+        GradientThreshold = 0.015f;
+        DensityPenalty = 0.060f;
         ActiveDegradeChance = 0.15f;
         ActiveDegradeFactor = 0.98f;
         VisualScale = 2.0f;
@@ -62,6 +62,13 @@ public class AttackerRole : AntRole
         return PheromoneChannel.EnemyTrail;
     }
 
+    public override bool ShouldDeposit(Ant ant)
+    {
+        // Only lay enemy trail when actually engaged; otherwise attackers
+        // self-reinforce into single-file columns instead of wandering.
+        return ant.EngagementTimer > 0f;
+    }
+
     public override void OnReachedFoodCell(Ant ant, Colony colony, World world)
     {
     }
@@ -74,6 +81,8 @@ public class AttackerRole : AntRole
     public override void OnReachedEnemyNest(Ant ant, Colony colony, World world, Colony enemyColony)
     {
         ant.InternalClock = 0f;
+        ant.EngagementTimer = 1f;
+        ant.LastCombatTargetColonyId = enemyColony.Id;
     }
 
     public override void OnLostTrail(Ant ant, Colony colony, World world)

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 public static class VisionSystem
 {
-    private const float StrengthNormalizer = 4.0f;
+    private const float StrengthNormalizer = 2.0f;
 
     public static void Scan(Ant ant, Colony colony, World world)
     {
@@ -14,8 +14,7 @@ public static class VisionSystem
             return;
         }
 
-        float range = role.VisionRange;
-        float rangeSq = range * range;
+        float rangeSq = role.VisionRange * role.VisionRange;
 
         float sumX = 0f;
         float sumY = 0f;
@@ -23,17 +22,17 @@ public static class VisionSystem
         float foodWeight = role.GetVisualAttraction(VisualTargetType.FoodCell, ant);
         if (foodWeight != 0f)
         {
-            AccumulateFood(ant, world, range, rangeSq, foodWeight, ref sumX, ref sumY);
+            AccumulateFood(ant, world, rangeSq, foodWeight, ref sumX, ref sumY);
         }
 
         float enemyAntWeight = role.GetVisualAttraction(VisualTargetType.EnemyAnt, ant);
         float enemyNestWeight = role.GetVisualAttraction(VisualTargetType.EnemyNest, ant);
         if (enemyAntWeight != 0f || enemyNestWeight != 0f)
         {
-            bool sawEnemy = AccumulateEnemies(ant, colony, world, range, rangeSq, enemyAntWeight, enemyNestWeight, ref sumX, ref sumY);
-            if (sawEnemy)
+            int closestEnemyColonyId = AccumulateEnemies(ant, colony, world, rangeSq, enemyAntWeight, enemyNestWeight, ref sumX, ref sumY);
+            if (closestEnemyColonyId != 0)
             {
-                ant.DetectedEnemy = true;
+                ant.DetectedEnemyColonyId = closestEnemyColonyId;
             }
         }
 
@@ -53,7 +52,7 @@ public static class VisionSystem
         ant.VisionStrength = strength;
     }
 
-    private static void AccumulateFood(Ant ant, World world, float range, float rangeSq, float weight, ref float sumX, ref float sumY)
+    private static void AccumulateFood(Ant ant, World world, float rangeSq, float weight, ref float sumX, ref float sumY)
     {
         Point[] foodCells = world.FoodCells;
         int foodCount = world.FoodCount;
@@ -80,9 +79,15 @@ public static class VisionSystem
         }
     }
 
-    private static bool AccumulateEnemies(Ant ant, Colony colony, World world, float range, float rangeSq, float antWeight, float nestWeight, ref float sumX, ref float sumY)
+    // Returns the Colony.Id of the closest enemy (ant or nest) seen this scan,
+    // or 0 if nothing was in range. The id is used downstream to tag the
+    // EnemyTrail deposit so that clearing a dead enemy only removes its own
+    // trail and never touches trails about other living enemies.
+    private static int AccumulateEnemies(Ant ant, Colony colony, World world, float rangeSq, float antWeight, float nestWeight, ref float sumX, ref float sumY)
     {
-        bool sawAny = false;
+        int closestId = 0;
+        float closestDistSq = float.MaxValue;
+
         IReadOnlyList<Colony> colonies = world.Colonies;
         int colonyCount = colonies.Count;
         for (int c = 0; c < colonyCount; c++)
@@ -108,7 +113,11 @@ public static class VisionSystem
                         float falloff = nestWeight / (1f + nDist);
                         sumX += (ndx / nDist) * falloff;
                         sumY += (ndy / nDist) * falloff;
-                        sawAny = true;
+                        if (nDistSq < closestDistSq)
+                        {
+                            closestDistSq = nDistSq;
+                            closestId = other.Id;
+                        }
                     }
                 }
             }
@@ -139,10 +148,14 @@ public static class VisionSystem
                     float falloff = antWeight / (1f + dist);
                     sumX += (dx / dist) * falloff;
                     sumY += (dy / dist) * falloff;
-                    sawAny = true;
+                    if (distSq < closestDistSq)
+                    {
+                        closestDistSq = distSq;
+                        closestId = other.Id;
+                    }
                 }
             }
         }
-        return sawAny;
+        return closestId;
     }
 }

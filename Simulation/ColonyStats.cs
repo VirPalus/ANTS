@@ -11,14 +11,14 @@ public class ColonyStats
     private int _validSamples;
     private float _accumulator;
 
-    public int SampleWriteIndex
-    {
-        get { return _writeIndex; }
-    }
-
     public int ValidSamples
     {
         get { return _validSamples; }
+    }
+
+    public int SampleWriteIndex
+    {
+        get { return _writeIndex; }
     }
 
     public ColonyStats()
@@ -76,6 +76,20 @@ public class ColonyStats
         for (int i = 0; i < _validSamples; i++)
         {
             int v = _populationHistory[i];
+            if (v > max)
+            {
+                max = v;
+            }
+        }
+        return max;
+    }
+
+    public int GetMaxFood()
+    {
+        int max = 1;
+        for (int i = 0; i < _validSamples; i++)
+        {
+            int v = _foodHistory[i];
             if (v > max)
             {
                 max = v;

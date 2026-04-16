@@ -18,9 +18,9 @@ public class DefenderRole : AntRole
         DepositInterval = 0.25f;
         SensorInterval = 0.25f;
         AutonomyMax = 400f;
-        ExplorationRate = 0.02f;
-        GradientThreshold = 0.003f;
-        DensityPenalty = 0.030f;
+        ExplorationRate = 0.12f;
+        GradientThreshold = 0.015f;
+        DensityPenalty = 0.060f;
         ActiveDegradeChance = 0.10f;
         ActiveDegradeFactor = 0.98f;
         VisualScale = 2.0f;
@@ -65,6 +65,11 @@ public class DefenderRole : AntRole
     public override PheromoneChannel GetDepositChannel(Ant ant)
     {
         return PheromoneChannel.EnemyTrail;
+    }
+
+    public override bool ShouldDeposit(Ant ant)
+    {
+        return ant.EngagementTimer > 0f;
     }
 
     public override void OnReachedFoodCell(Ant ant, Colony colony, World world)

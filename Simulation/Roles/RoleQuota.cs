@@ -3,23 +3,43 @@ using System.Collections.Generic;
 
 public class RoleQuota
 {
-    private const float CombatantFloor = 0.10f;
-    private const float CombatantRange = 0.35f;
-    private const float CombatantSigmoidMid = 50f;
-    private const float CombatantSigmoidSlope = 30f;
-    private const float DefenseBoostOnThreshold = 0.6f;
-    private const float DefenseBoostOffThreshold = 0.3f;
-    private const float CombatantTargetCap = 0.65f;
-    private const float BaseScoutShare = 0.55f;
-    private const float DefenderFloor = 0.15f;
+    // Founding: queen focuses on workers, almost all foragers.
+    private const float FoundingScoutShare = 0.10f;
+    private const float FoundingForagerShare = 0.90f;
+
+    // Peace: mostly foragers, tiny standing combatant force.
+    private const float PeaceScoutShare = 0.10f;
+    private const float PeaceForagerShare = 0.80f;
+    private const float PeaceDefenderShare = 0.05f;
+    private const float PeaceAttackerShare = 0.05f;
+
+    // Nest under attack: heavy defenders, still some attackers to counter.
+    private const float DefenseScoutShare = 0.10f;
+    private const float DefenseForagerShare = 0.40f;
+    private const float DefenseDefenderShare = 0.30f;
+    private const float DefenseAttackerShare = 0.20f;
+
+    // Going on the offensive: attackers lead, keep a reduced home guard.
+    private const float OffenseScoutShare = 0.10f;
+    private const float OffenseForagerShare = 0.40f;
+    private const float OffenseDefenderShare = 0.20f;
+    private const float OffenseAttackerShare = 0.30f;
+
+    // Hysteresis thresholds (on accumulated defense/offense signals).
+    private const float DefenseBoostOnThreshold = 0.5f;
+    private const float DefenseBoostOffThreshold = 0.2f;
+    private const float OffenseBoostOnThreshold = 0.4f;
+    private const float OffenseBoostOffThreshold = 0.15f;
 
     private List<AntRole> _roles;
     private bool _defenseBoostActive;
+    private bool _offenseBoostActive;
 
     public RoleQuota()
     {
         _roles = new List<AntRole>();
         _defenseBoostActive = false;
+        _offenseBoostActive = false;
     }
 
     public void Register(AntRole role)
@@ -47,89 +67,108 @@ public class RoleQuota
 
     private void ComputeTargets(Colony colony, out float scoutTarget, out float foragerTarget, out float defenderTarget, out float attackerTarget)
     {
-        int population = colony.Ants.Count;
-        Queen queen = colony.Queen;
-
-        float totalCombatant;
         if (colony.IsFounding)
         {
-            totalCombatant = 0f;
-        }
-        else
-        {
-            float sigmoidInput = -(population - CombatantSigmoidMid) / CombatantSigmoidSlope;
-            float sigmoid = 1f / (1f + (float)Math.Exp(sigmoidInput));
-            float baseCombatant = CombatantFloor + CombatantRange * sigmoid;
-            totalCombatant = baseCombatant * queen.AggressionBias;
-
-            UpdateDefenseHysteresis(colony);
-            if (_defenseBoostActive)
-            {
-                totalCombatant *= 1f + colony.Defense * queen.ThreatSensitivity;
-            }
-
-            float enemyPresence = colony.Defense;
-            if (colony.Offense > enemyPresence)
-            {
-                enemyPresence = colony.Offense;
-            }
-            totalCombatant *= enemyPresence;
-
-            if (totalCombatant > CombatantTargetCap)
-            {
-                totalCombatant = CombatantTargetCap;
-            }
-            if (totalCombatant < 0f)
-            {
-                totalCombatant = 0f;
-            }
-        }
-
-        float defenderShare;
-        if (totalCombatant <= 0f)
-        {
-            defenderShare = 0f;
+            scoutTarget = FoundingScoutShare;
+            foragerTarget = FoundingForagerShare;
             defenderTarget = 0f;
             attackerTarget = 0f;
+            return;
+        }
+
+        UpdateDefenseHysteresis(colony);
+        UpdateOffenseHysteresis(colony);
+
+        if (_defenseBoostActive && _offenseBoostActive)
+        {
+            // Both fronts active: average the two combat postures.
+            scoutTarget = DefenseScoutShare;
+            foragerTarget = DefenseForagerShare;
+            defenderTarget = (DefenseDefenderShare + OffenseDefenderShare) * 0.5f;
+            attackerTarget = (DefenseAttackerShare + OffenseAttackerShare) * 0.5f;
+        }
+        else if (_defenseBoostActive)
+        {
+            scoutTarget = DefenseScoutShare;
+            foragerTarget = DefenseForagerShare;
+            defenderTarget = DefenseDefenderShare;
+            attackerTarget = DefenseAttackerShare;
+        }
+        else if (_offenseBoostActive)
+        {
+            scoutTarget = OffenseScoutShare;
+            foragerTarget = OffenseForagerShare;
+            defenderTarget = OffenseDefenderShare;
+            attackerTarget = OffenseAttackerShare;
         }
         else
         {
-            defenderShare = DefenderFloor + (1f - DefenderFloor) * colony.Defense;
-            if (defenderShare > 1f)
-            {
-                defenderShare = 1f;
-            }
-            defenderTarget = totalCombatant * defenderShare;
-            attackerTarget = totalCombatant - defenderTarget;
+            scoutTarget = PeaceScoutShare;
+            foragerTarget = PeaceForagerShare;
+            defenderTarget = PeaceDefenderShare;
+            attackerTarget = PeaceAttackerShare;
         }
 
-        float remaining = 1f - totalCombatant;
-        float exploreWeight = queen.ExplorationBias;
-        float foragerWeight = queen.GrowthBias;
-        float totalWeight = exploreWeight + foragerWeight;
-        float scoutShare = BaseScoutShare * (exploreWeight / (totalWeight * 0.5f + 0.5f));
-        if (scoutShare > 0.85f)
-        {
-            scoutShare = 0.85f;
-        }
-        if (scoutShare < 0.15f)
-        {
-            scoutShare = 0.15f;
-        }
+        // Personality: each queen can lean up to ±5% from the base quota,
+        // reflecting her own preference, not a hard rule.
+        ApplyWorkerBiasNudge(colony, ref scoutTarget, ref foragerTarget);
+        ApplyCombatantBiasNudge(colony, ref defenderTarget, ref attackerTarget);
+    }
 
-        scoutTarget = remaining * scoutShare;
-        foragerTarget = remaining - scoutTarget;
+    // Bias range is 0.7..1.3 → lean span is ±0.6. Multiplier 0.0833 caps the
+    // nudge at roughly ±5 percentage points.
+    private const float PersonalityNudgeScale = 0.0833f;
+
+    private static void ApplyWorkerBiasNudge(Colony colony, ref float scoutTarget, ref float foragerTarget)
+    {
+        float lean = colony.Queen.ExplorationBias - colony.Queen.GrowthBias;
+        float nudge = lean * PersonalityNudgeScale;
+        if (nudge > foragerTarget) nudge = foragerTarget;
+        if (-nudge > scoutTarget) nudge = -scoutTarget;
+        scoutTarget += nudge;
+        foragerTarget -= nudge;
+    }
+
+    private static void ApplyCombatantBiasNudge(Colony colony, ref float defenderTarget, ref float attackerTarget)
+    {
+        // Aggressive queen (bias > 1) leans toward attackers; cautious leans
+        // toward defenders. We use (Aggression - ThreatSensitivity) so that
+        // a high-threat queen also counter-balances toward defense.
+        float lean = colony.Queen.AggressionBias - colony.Queen.ThreatSensitivity;
+        float nudge = lean * PersonalityNudgeScale;
+        if (nudge > defenderTarget) nudge = defenderTarget;
+        if (-nudge > attackerTarget) nudge = -attackerTarget;
+        attackerTarget += nudge;
+        defenderTarget -= nudge;
     }
 
     private void UpdateDefenseHysteresis(Colony colony)
     {
-        if (colony.Defense > DefenseBoostOnThreshold)
+        // Personality: threat-sensitive queens flip into defense sooner.
+        float onT = DefenseBoostOnThreshold / colony.Queen.ThreatSensitivity;
+        float offT = DefenseBoostOffThreshold / colony.Queen.ThreatSensitivity;
+        if (colony.Defense > onT)
         {
             _defenseBoostActive = true;
         }
-        else if (colony.Defense < DefenseBoostOffThreshold)
+        else if (colony.Defense < offT)
         {
             _defenseBoostActive = false;
+        }
+    }
+
+    private void UpdateOffenseHysteresis(Colony colony)
+    {
+        // Personality: aggressive queens flip into offense sooner.
+        float onT = OffenseBoostOnThreshold / colony.Queen.AggressionBias;
+        float offT = OffenseBoostOffThreshold / colony.Queen.AggressionBias;
+        if (colony.Offense > onT)
+        {
+            _offenseBoostActive = true;
+        }
+        else if (colony.Offense < offT)
+        {
+            _offenseBoostActive = false;
         }
     }
 

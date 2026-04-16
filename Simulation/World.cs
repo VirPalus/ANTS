@@ -7,7 +7,6 @@ public class World
     public const int SimHz = 60;
     public const float TickSeconds = 1f / SimHz;
     public const float FoodPickupAmount = 0.1f;
-    public const float DensityDecayPerSecond = 0.5f;
 
     private const int InitialFoodCapacity = 256;
 
@@ -157,6 +156,7 @@ public class World
             {
                 int remainingFood = colony.NestFood;
                 colony.MarkDead("overrun", SimulationTime);
+                ForgetEnemyTrailAboutDeadColony(colony);
                 ClearNestCells(colony);
                 ScatterFoodAtNest(colony, remainingFood);
                 _colonies.RemoveAt(i);
@@ -166,9 +166,44 @@ public class World
             if (colony.Ants.Count == 0 && colony.NestFood == 0)
             {
                 colony.MarkDead("starved", SimulationTime);
+                ForgetEnemyTrailAboutDeadColony(colony);
                 ClearNestCells(colony);
                 _colonies.RemoveAt(i);
                 _deadColonies.Add(colony);
+            }
+        }
+    }
+
+    // The dead colony is no longer a threat to anyone. Every other colony
+    // drops exactly the EnemyTrail layer that was tagged with this colony's
+    // Id. Trails about other still-living enemies live in their own layers
+    // and are untouched. Also clear any ants still referencing this id as
+    // their detection/combat target so they don't deposit under a dead key.
+    private void ForgetEnemyTrailAboutDeadColony(Colony deadColony)
+    {
+        int colonyCount = _colonies.Count;
+        for (int c = 0; c < colonyCount; c++)
+        {
+            Colony other = _colonies[c];
+            if (other.Id == deadColony.Id)
+            {
+                continue;
+            }
+            other.PheromoneGrid.ClearEnemyTrailForTarget(deadColony.Id);
+
+            IReadOnlyList<Ant> ants = other.Ants;
+            int antCount = ants.Count;
+            for (int a = 0; a < antCount; a++)
+            {
+                Ant ant = ants[a];
+                if (ant.DetectedEnemyColonyId == deadColony.Id)
+                {
+                    ant.DetectedEnemyColonyId = 0;
+                }
+                if (ant.LastCombatTargetColonyId == deadColony.Id)
+                {
+                    ant.LastCombatTargetColonyId = 0;
+                }
             }
         }
     }
@@ -209,7 +244,7 @@ public class World
             return;
         }
 
-        float perCell = (float)totalFood / (float)cellCount;
+        float perCell = ((float)totalFood * FoodPickupAmount) / (float)cellCount;
         for (int dy = -NestRadius; dy <= NestRadius; dy++)
         {
             for (int dx = -NestRadius; dx <= NestRadius; dx++)
@@ -296,12 +331,16 @@ public class World
 
     public Colony? GetColonyById(int colonyId)
     {
-        int index = colonyId - 1;
-        if (index < 0 || index >= _colonies.Count)
+        int count = _colonies.Count;
+        for (int i = 0; i < count; i++)
         {
-            return null;
+            Colony candidate = _colonies[i];
+            if (candidate.Id == colonyId)
+            {
+                return candidate;
+            }
         }
-        return _colonies[index];
+        return null;
     }
 
     public bool IsEnemyNest(int cellX, int cellY, int colonyId)
@@ -415,7 +454,7 @@ public class World
 
         if (type == CellType.Food)
         {
-            _foodAmount[x, y] = 1f;
+            _foodAmount[x, y] = 0.5f;
             AddFoodCell(x, y);
             return;
         }
@@ -446,7 +485,7 @@ public class World
             return;
         }
 
-        float amount = (float)carryingFood;
+        float amount = carryingFood * FoodPickupAmount;
         if (_cells[x, y] == CellType.Food)
         {
             _foodAmount[x, y] += amount;

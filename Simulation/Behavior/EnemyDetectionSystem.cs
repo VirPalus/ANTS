@@ -31,7 +31,7 @@ public static class EnemyDetectionSystem
                 int owner = world.GetNestOwner(nx, ny);
                 if (owner != 0 && owner != colony.Id)
                 {
-                    colony.PheromoneGrid.Deposit(PheromoneChannel.EnemyTrail, centerX, centerY, DetectionDepositIntensity);
+                    colony.PheromoneGrid.DepositEnemy(owner, centerX, centerY, DetectionDepositIntensity);
                     colony.RegisterOffenseSignal(OffenseSignalAmount);
                     RegisterThreatIfNearOwnNest(ant, colony);
                     return;
@@ -39,12 +39,12 @@ public static class EnemyDetectionSystem
             }
         }
 
-        if (ant.DetectedEnemy)
+        if (ant.DetectedEnemyColonyId != 0)
         {
-            colony.PheromoneGrid.Deposit(PheromoneChannel.EnemyTrail, centerX, centerY, DetectionDepositIntensity);
+            colony.PheromoneGrid.DepositEnemy(ant.DetectedEnemyColonyId, centerX, centerY, DetectionDepositIntensity);
             colony.RegisterOffenseSignal(OffenseSignalAmount);
             RegisterThreatIfNearOwnNest(ant, colony);
-            ant.DetectedEnemy = false;
+            ant.DetectedEnemyColonyId = 0;
         }
     }
 

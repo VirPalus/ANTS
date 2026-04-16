@@ -58,16 +58,17 @@ public static class CombatSystem
         }
 
         ant.EngagementTimer = EngagementHoldSeconds;
+        ant.LastCombatTargetColonyId = closestColony!.Id;
 
         if (ant.AttackCooldown > 0f)
         {
             return;
         }
 
-        DamageTarget(closestEnemy, closestColony!, world);
+        DamageTarget(closestEnemy, closestColony, world);
         ant.AttackCooldown = AttackCooldownSeconds;
         ant.InternalClock = 0f;
-        colony.PheromoneGrid.Deposit(PheromoneChannel.EnemyTrail, (int)ant.X, (int)ant.Y, 1.0f);
+        colony.PheromoneGrid.DepositEnemy(closestColony.Id, (int)ant.X, (int)ant.Y, 1.0f);
     }
 
     private static void DamageTarget(Ant target, Colony targetColony, World world)
@@ -83,7 +84,7 @@ public static class CombatSystem
         int cy = (int)target.Y;
         world.DecrementDensity(cx, cy);
         world.DropFoodFromDeadAnt(cx, cy, target.CarryingFood);
-        targetColony.RegisterCombatDeath();
+        targetColony.RegisterCombatDeath(target.X, target.Y);
     }
 
     public static void DecrementCooldown(Ant ant, float dt)
@@ -99,9 +100,10 @@ public static class CombatSystem
         if (ant.EngagementTimer > 0f)
         {
             ant.EngagementTimer -= dt;
-            if (ant.EngagementTimer < 0f)
+            if (ant.EngagementTimer <= 0f)
             {
                 ant.EngagementTimer = 0f;
+                ant.LastCombatTargetColonyId = 0;
             }
         }
     }

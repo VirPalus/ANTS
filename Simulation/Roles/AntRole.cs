@@ -32,6 +32,10 @@ public abstract class AntRole
     public abstract void UpdateGoal(Ant ant, Colony colony, World world);
     public abstract PheromoneChannel GetFollowChannel(Ant ant);
     public abstract PheromoneChannel GetDepositChannel(Ant ant);
+    public virtual bool ShouldDeposit(Ant ant)
+    {
+        return true;
+    }
     public abstract void OnReachedFoodCell(Ant ant, Colony colony, World world);
     public abstract void OnReachedOwnNest(Ant ant, Colony colony, World world);
     public abstract void OnReachedEnemyNest(Ant ant, Colony colony, World world, Colony enemyColony);

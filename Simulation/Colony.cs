@@ -7,19 +7,22 @@ public class Colony
     public const int StartingFood = 10;
     public const float DefenseDecayPerSecond = 0.08f;
     public const float CombatDeathDefenseWeight = 0.35f;
+    public const float CombatDeathOffenseWeight = 0.20f;
     public const float EnemyContactDefenseWeight = 0.15f;
     public const float DefenseScaleNormalizer = 3.0f;
     public const float FoundingPeriodSeconds = 60f;
     public const float OffenseDecayPerSecond = 0.02f;
     public const float OffenseScaleNormalizer = 5.0f;
+    public const float CombatDeathDefenseRadius = 20f;
+    public const float CombatDeathDefenseRadiusSq = CombatDeathDefenseRadius * CombatDeathDefenseRadius;
     public const float ProtectedRadiusBuffer = 4f;
     public const float ProtectedRadiusMin = 8f;
     public const float ProtectedRadiusMax = 80f;
     public const float ProtectedRadiusSmoothing = 0.08f;
 
     public const float NestMaxHealth = 100f;
-    public const float NestDamagePerEnemyPerSec = 1.5f;
-    public const float NestRegenPerSec = 2.5f;
+    public const float NestDamagePerEnemyPerSec = 2.0f;
+    public const float NestRegenPerSec = 2.0f;
     public const float NestRegenDelaySeconds = 5f;
     public const float NestAttackRadius = 4f;
     public const float NestAttackRadiusSq = NestAttackRadius * NestAttackRadius;
@@ -46,10 +49,11 @@ public class Colony
 
     public float Defense { get; private set; }
     public float Offense { get; private set; }
+    public float TimeSinceDefenseSignal { get; private set; }
     public float ProtectedRadius { get; private set; }
     public float NestHealth { get; private set; }
-    public bool IsAlive { get; private set; }
     public string DeathReason { get; private set; }
+    public bool IsAlive { get; private set; }
     public float DeathTime { get; private set; }
     public bool IsNestDead
     {
@@ -100,12 +104,13 @@ public class Colony
         Defense = 0f;
         _offenseRaw = 0f;
         Offense = 0f;
+        TimeSinceDefenseSignal = 1000f;
         Age = 0f;
         ProtectedRadius = ProtectedRadiusMin;
         NestHealth = NestMaxHealth;
         _timeSinceNestAttack = NestRegenDelaySeconds;
-        IsAlive = true;
         DeathReason = "";
+        IsAlive = true;
         DeathTime = 0f;
     }
 
@@ -311,14 +316,24 @@ public class Colony
         return true;
     }
 
-    public void RegisterCombatDeath()
+    public void RegisterCombatDeath(float deathX, float deathY)
     {
-        _defenseRaw += CombatDeathDefenseWeight;
+        float dx = deathX - (NestX + 0.5f);
+        float dy = deathY - (NestY + 0.5f);
+        float distSq = dx * dx + dy * dy;
+        if (distSq < CombatDeathDefenseRadiusSq)
+        {
+            _defenseRaw += CombatDeathDefenseWeight;
+            TimeSinceDefenseSignal = 0f;
+            return;
+        }
+        _offenseRaw += CombatDeathOffenseWeight;
     }
 
     public void RegisterDefenseSignal(float severity)
     {
         _defenseRaw += EnemyContactDefenseWeight * severity;
+        TimeSinceDefenseSignal = 0f;
     }
 
     public void RegisterOffenseSignal(float amount)
@@ -333,5 +348,7 @@ public class Colony
 
         _offenseRaw *= (float)Math.Exp(-OffenseDecayPerSecond * dt);
         Offense = (float)Math.Tanh(_offenseRaw / OffenseScaleNormalizer);
+
+        TimeSinceDefenseSignal += dt;
     }
 }

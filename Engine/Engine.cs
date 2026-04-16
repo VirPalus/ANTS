@@ -11,7 +11,7 @@ public partial class Engine : Form
 {
     private const int CellSize = 16;
     private const int BorderThickness = 8;
-    private const int WorldPercent = 75;
+    private const int WorldPercent = 100;
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
@@ -40,6 +40,10 @@ public partial class Engine : Form
     private static readonly SKColor DefenseBarColor = new SKColor(220, 38, 38);
     private static readonly SKColor OffenseBarColor = new SKColor(234, 179, 8);
 
+    private static readonly SKColor FoodPheromoneColor = new SKColor(34, 197, 94);
+    private static readonly SKColor EnemyPheromoneColor = new SKColor(239, 68, 68);
+    private static readonly SKColor DangerPheromoneColor = new SKColor(249, 115, 22);
+
     private static readonly Color[] ColonyColors = new Color[]
     {
         Color.FromArgb(239, 68, 68),
@@ -51,7 +55,6 @@ public partial class Engine : Form
     };
 
     private static readonly Color FoodColor = Color.FromArgb(34, 197, 94);
-    private static readonly SKColor AntSkColor = new SKColor(210, 210, 210);
 
     private World _world = null!;
     private int _gridX;
@@ -82,7 +85,6 @@ public partial class Engine : Form
     private SKPicture _gridPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private SKPicture _hudPicture = null!;
-    private SKPath _foodPath = null!;
     private SKPath _nestPath = null!;
     private SKRect[] _antBodySprites = Array.Empty<SKRect>();
     private SKRotationScaleMatrix[] _antBodyTransforms = Array.Empty<SKRotationScaleMatrix>();
@@ -103,8 +105,8 @@ public partial class Engine : Form
     private long _lastSimTimestamp;
 
     private SKColor _backgroundSkColor;
-    private SKColor _foodSkColor;
     private SKColor _buttonBorderSkColor;
+    private SKColor _foodSkColor;
 
     private readonly List<IDisposable> _ownedDisposables = new List<IDisposable>();
 
@@ -135,12 +137,11 @@ public partial class Engine : Form
         _textMetrics = _textPaint.FontMetrics;
         _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
 
-        _foodPath = Own(new SKPath());
         _nestPath = Own(new SKPath());
 
         _backgroundSkColor = new SKColor(BackColor.R, BackColor.G, BackColor.B);
-        _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
         _buttonBorderSkColor = new SKColor(120, 120, 120);
+        _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
 
         _skControl = new FastSKGLControl();
         _skControl.Dock = DockStyle.Fill;
@@ -688,6 +689,8 @@ public partial class Engine : Form
             {
                 float bestHome = 0f;
                 float bestFood = 0f;
+                float bestEnemy = 0f;
+                float bestDanger = 0f;
                 byte homeR = 0;
                 byte homeG = 0;
                 byte homeB = 0;
@@ -711,6 +714,18 @@ public partial class Engine : Form
                     {
                         bestFood = f;
                     }
+
+                    float e = grid.Get(PheromoneChannel.EnemyTrail, x, y);
+                    if (e > bestEnemy)
+                    {
+                        bestEnemy = e;
+                    }
+
+                    float d = grid.Get(PheromoneChannel.DangerTrail, x, y);
+                    if (d > bestDanger)
+                    {
+                        bestDanger = d;
+                    }
                 }
 
                 float pixelX = _gridX + x * CellSize;
@@ -718,27 +733,43 @@ public partial class Engine : Form
 
                 if (bestHome > PheromoneOverlayCutoff)
                 {
-                    int raw = (int)(bestHome * PheromoneOverlayMaxAlpha);
-                    if (raw > PheromoneOverlayMaxAlpha)
-                    {
-                        raw = (int)PheromoneOverlayMaxAlpha;
-                    }
-                    _fillPaint.Color = new SKColor(homeR, homeG, homeB, (byte)raw);
+                    byte alpha = ScaleIntensityToAlpha(bestHome);
+                    _fillPaint.Color = new SKColor(homeR, homeG, homeB, alpha);
                     canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
                 }
 
                 if (bestFood > PheromoneOverlayCutoff)
                 {
-                    int raw = (int)(bestFood * PheromoneOverlayMaxAlpha);
-                    if (raw > PheromoneOverlayMaxAlpha)
-                    {
-                        raw = (int)PheromoneOverlayMaxAlpha;
-                    }
-                    _fillPaint.Color = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B, (byte)raw);
+                    byte alpha = ScaleIntensityToAlpha(bestFood);
+                    _fillPaint.Color = new SKColor(FoodPheromoneColor.Red, FoodPheromoneColor.Green, FoodPheromoneColor.Blue, alpha);
+                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
+                }
+
+                if (bestEnemy > PheromoneOverlayCutoff)
+                {
+                    byte alpha = ScaleIntensityToAlpha(bestEnemy);
+                    _fillPaint.Color = new SKColor(EnemyPheromoneColor.Red, EnemyPheromoneColor.Green, EnemyPheromoneColor.Blue, alpha);
+                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
+                }
+
+                if (bestDanger > PheromoneOverlayCutoff)
+                {
+                    byte alpha = ScaleIntensityToAlpha(bestDanger);
+                    _fillPaint.Color = new SKColor(DangerPheromoneColor.Red, DangerPheromoneColor.Green, DangerPheromoneColor.Blue, alpha);
                     canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
                 }
             }
         }
+    }
+
+    private static byte ScaleIntensityToAlpha(float intensity)
+    {
+        int raw = (int)(intensity * PheromoneOverlayMaxAlpha);
+        if (raw > PheromoneOverlayMaxAlpha)
+        {
+            raw = (int)PheromoneOverlayMaxAlpha;
+        }
+        return (byte)raw;
     }
 
     private void DrawStatsPanel(SKCanvas canvas)
@@ -779,13 +810,16 @@ public partial class Engine : Form
         _fillPaint.Color = new SKColor(0, 0, 0, 160);
         canvas.DrawRect(x, y, StatsPanelWidth, StatsCardHeight, _fillPaint);
 
-        string deathLabel = "DEAD - " + colony.DeathReason;
-        float textWidth = _textPaint.MeasureText(deathLabel);
+        float elapsed = _world.SimulationTime - colony.DeathTime;
+        if (elapsed < 0f)
+        {
+            elapsed = 0f;
+        }
+        string label = "DEAD - " + colony.DeathReason + " (" + ((int)elapsed) + "s ago)";
+        float textWidth = _textPaint.MeasureText(label);
         float labelX = x + (StatsPanelWidth - textWidth) / 2f;
-        float labelY = y + StatsCardHeight / 2f + 5f;
-        _textPaint.Color = new SKColor(220, 38, 38);
-        canvas.DrawText(deathLabel, labelX, labelY, _textPaint);
-        _textPaint.Color = SKColors.White;
+        float labelY = y + StatsCardHeight / 2f - _textMetrics.Ascent / 2f;
+        canvas.DrawText(label, labelX, labelY, _textPaint);
     }
 
     private void DrawStatsCard(SKCanvas canvas, Colony colony, int x, int y)
@@ -946,6 +980,31 @@ public partial class Engine : Form
         _strokePaint.StrokeWidth = 2f;
         _strokePaint.IsAntialias = true;
         canvas.DrawPath(linePath, _strokePaint);
+
+        int maxFood = stats.GetMaxFood();
+        if (maxFood < 1)
+        {
+            maxFood = 1;
+        }
+        using SKPath foodLinePath = new SKPath();
+        for (int i = 0; i < samples; i++)
+        {
+            float px = x + i * stepX;
+            int food = stats.GetFoodAt(i);
+            float py = bottom - (food / (float)maxFood) * height;
+            if (i == 0)
+            {
+                foodLinePath.MoveTo(px, py);
+            }
+            else
+            {
+                foodLinePath.LineTo(px, py);
+            }
+        }
+        _strokePaint.Color = _foodSkColor;
+        _strokePaint.StrokeWidth = 1.5f;
+        canvas.DrawPath(foodLinePath, _strokePaint);
+
         _strokePaint.IsAntialias = false;
         _strokePaint.StrokeWidth = 1f;
         _strokePaint.Color = _buttonBorderSkColor;
@@ -1014,7 +1073,7 @@ public partial class Engine : Form
                 {
                     alpha = 10;
                 }
-                _fillPaint.Color = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B, alpha);
+                _fillPaint.Color = _foodSkColor.WithAlpha(alpha);
                 float pixelX = _gridX + cellX * CellSize;
                 float pixelY = _gridY + cellY * CellSize;
                 canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
@@ -1061,7 +1120,7 @@ public partial class Engine : Form
 
             if (hoverInsideX && hoverInsideY)
             {
-                _fillPaint.Color = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B, 140);
+                _fillPaint.Color = _foodSkColor.WithAlpha(140);
                 int ghostPixelX = _gridX + hoverCellX * CellSize;
                 int ghostPixelY = _gridY + hoverCellY * CellSize;
                 canvas.DrawRect(ghostPixelX, ghostPixelY, CellSize, CellSize, _fillPaint);

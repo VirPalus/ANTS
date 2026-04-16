@@ -3,10 +3,12 @@ namespace ANTS;
 public static class SpawnSystem
 {
     private const float BaseSpawnInterval = 1.0f;
-    private const float MinSpawnInterval = 0.25f;
+    private const float MinSpawnInterval = 0.04f;
     private const float MaxSpawnInterval = 5.0f;
-    private const float IdealFoodPerAnt = 3.0f;
-    private const float IntervalScaleFloor = 0.5f;
+    private const float IdealFoodPerAnt = 1.5f;
+    private const float IntervalScaleFloor = 0.3f;
+    private const float SurplusRatioExponent = 1.6f;
+    private const float SurplusScaleGain = 1.5f;
 
     public static void Tick(Colony colony, World world, float dt)
     {
@@ -20,6 +22,10 @@ public static class SpawnSystem
         colony.SpawnTimer += interval;
 
         AntRole role = colony.RoleQuota.PickRoleForSpawn(colony);
+        if (colony.NestFood < role.SpawnFoodCost)
+        {
+            role = ScoutRole.Instance;
+        }
         if (!colony.ConsumeFoodForSpawn(role.SpawnFoodCost))
         {
             return;
@@ -53,7 +59,19 @@ public static class SpawnSystem
         }
 
         float ratio = foodPerAnt / IdealFoodPerAnt;
+
+        // Base linear scale (keeps well-fed colonies above the floor).
         float scale = IntervalScaleFloor + IntervalScaleFloor * ratio;
+
+        // Surplus boost: when food-per-ant exceeds the ideal, the queen should
+        // ramp up spawning aggressively so the food-to-ants feedback loop
+        // stays tight (no more 10x surplus while the queen "sleeps").
+        if (ratio > 1f)
+        {
+            float surplus = ratio - 1f;
+            scale += SurplusScaleGain * (float)Math.Pow(surplus, SurplusRatioExponent);
+        }
+
         if (scale <= 0.01f)
         {
             return MaxSpawnInterval;
