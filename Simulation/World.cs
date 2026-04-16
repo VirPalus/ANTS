@@ -66,32 +66,134 @@ public class World
         ComputeWallDistance();
     }
 
+    // Multi-source 4-neighbor BFS: distance from every cell to the nearest
+    // blocked tile. "Blocked" means a Wall cell OR the world boundary.
+    // Wall cells themselves and the outer border row/column are the sources
+    // (distance 0). Open cells get the step count to the nearest source.
     private void ComputeWallDistance()
     {
+        Queue<Point> queue = new Queue<Point>(Width * 4);
+
         for (int x = 0; x < Width; x++)
         {
             for (int y = 0; y < Height; y++)
             {
-                int distLeft = x;
-                int distRight = Width - 1 - x;
-                int distTop = y;
-                int distBottom = Height - 1 - y;
-                int minDist = distLeft;
-                if (distRight < minDist)
+                if (_cells[x, y] == CellType.Wall)
                 {
-                    minDist = distRight;
+                    _wallDistance[x, y] = 0;
+                    queue.Enqueue(new Point(x, y));
                 }
-                if (distTop < minDist)
+                else
                 {
-                    minDist = distTop;
+                    _wallDistance[x, y] = int.MaxValue;
                 }
-                if (distBottom < minDist)
-                {
-                    minDist = distBottom;
-                }
-                _wallDistance[x, y] = minDist;
             }
         }
+
+        // Outer border row/columns are also sources so the BFS matches the
+        // "stay away from edges" behaviour callers expect. Skip cells that
+        // are already wall-sources to keep the queue tidy.
+        for (int x = 0; x < Width; x++)
+        {
+            if (_wallDistance[x, 0] != 0)
+            {
+                _wallDistance[x, 0] = 0;
+                queue.Enqueue(new Point(x, 0));
+            }
+            if (_wallDistance[x, Height - 1] != 0)
+            {
+                _wallDistance[x, Height - 1] = 0;
+                queue.Enqueue(new Point(x, Height - 1));
+            }
+        }
+        for (int y = 1; y < Height - 1; y++)
+        {
+            if (_wallDistance[0, y] != 0)
+            {
+                _wallDistance[0, y] = 0;
+                queue.Enqueue(new Point(0, y));
+            }
+            if (_wallDistance[Width - 1, y] != 0)
+            {
+                _wallDistance[Width - 1, y] = 0;
+                queue.Enqueue(new Point(Width - 1, y));
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            Point p = queue.Dequeue();
+            int next = _wallDistance[p.X, p.Y] + 1;
+
+            if (p.X > 0 && _wallDistance[p.X - 1, p.Y] > next)
+            {
+                _wallDistance[p.X - 1, p.Y] = next;
+                queue.Enqueue(new Point(p.X - 1, p.Y));
+            }
+            if (p.X < Width - 1 && _wallDistance[p.X + 1, p.Y] > next)
+            {
+                _wallDistance[p.X + 1, p.Y] = next;
+                queue.Enqueue(new Point(p.X + 1, p.Y));
+            }
+            if (p.Y > 0 && _wallDistance[p.X, p.Y - 1] > next)
+            {
+                _wallDistance[p.X, p.Y - 1] = next;
+                queue.Enqueue(new Point(p.X, p.Y - 1));
+            }
+            if (p.Y < Height - 1 && _wallDistance[p.X, p.Y + 1] > next)
+            {
+                _wallDistance[p.X, p.Y + 1] = next;
+                queue.Enqueue(new Point(p.X, p.Y + 1));
+            }
+        }
+    }
+
+    // Call after bulk-placing walls (e.g. finishing a map load) so the
+    // cached wall-distance reflects the new layout. Individual SetCell
+    // calls do not auto-recompute; bulk-edit then flip once.
+    public void RecomputeWallDistance()
+    {
+        ComputeWallDistance();
+    }
+
+    // Bulk-apply the walls + food from a parsed map. Colonies are NOT
+    // added here -- Engine iterates ColonySeeds separately so color/id
+    // assignment stays in one place. Wall-distance is recomputed once
+    // at the end, which is cheap relative to touching every cell.
+    public void ApplyMapLayout(MapDefinition def)
+    {
+        if (def.Width != Width || def.Height != Height)
+        {
+            throw new ArgumentException("Map dimensions don't match world dimensions.");
+        }
+
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                if (def.Cells[x, y] == CellType.Wall)
+                {
+                    _cells[x, y] = CellType.Wall;
+                }
+            }
+        }
+
+        int foodCount = def.FoodCells.Count;
+        for (int i = 0; i < foodCount; i++)
+        {
+            FoodSeed f = def.FoodCells[i];
+            if (f.X < 0 || f.X >= Width) continue;
+            if (f.Y < 0 || f.Y >= Height) continue;
+            // Food-on-wall conflicts (should be rare: the map loader
+            // guards against them too) fall out as "wall wins".
+            if (_cells[f.X, f.Y] == CellType.Wall) continue;
+
+            _cells[f.X, f.Y] = CellType.Food;
+            _foodAmount[f.X, f.Y] = f.Amount;
+            AddFoodCell(f.X, f.Y);
+        }
+
+        RecomputeWallDistance();
     }
 
     public int GetWallDistance(int x, int y)
@@ -105,6 +207,19 @@ public class World
             return 0;
         }
         return _wallDistance[x, y];
+    }
+
+    public bool IsWall(int x, int y)
+    {
+        if (x < 0 || x >= Width)
+        {
+            return true;
+        }
+        if (y < 0 || y >= Height)
+        {
+            return true;
+        }
+        return _cells[x, y] == CellType.Wall;
     }
 
     public void Update()

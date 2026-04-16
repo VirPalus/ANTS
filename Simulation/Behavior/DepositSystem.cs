@@ -15,6 +15,14 @@ public static class DepositSystem
             return;
         }
 
+        // Safety: walls should never accept pheromones. Movement already
+        // forbids walking onto them, so this guard only fires in unusual
+        // cases (edge-of-cell rounding, runtime map edit, etc.).
+        if (world.IsWall(cellX, cellY))
+        {
+            return;
+        }
+
         PheromoneChannel channel = ant.Role.GetDepositChannel(ant);
 
         float intensity = BaseIntensity * (float)Math.Exp(-DecayCoef * ant.InternalClock);

@@ -29,6 +29,15 @@ public static class MovementSystem
             return;
         }
 
+        // Hard-block walls: ants cannot occupy a wall cell. Only bother
+        // checking when we'd actually cross into a new cell — within the
+        // same cell we already know it isn't a wall (we're standing on it).
+        if ((newCX != oldCX || newCY != oldCY) && world.IsWall(newCX, newCY))
+        {
+            BounceOff(ant, world);
+            return;
+        }
+
         if (world.IsEnemyNest(newCX, newCY, colony.Id))
         {
             Colony? enemy = world.GetColonyById(world.GetNestOwner(newCX, newCY));

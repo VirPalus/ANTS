@@ -124,6 +124,11 @@ public static class SensorSystem
             return -WallPenalty;
         }
 
+        if (world.IsWall(cx, cy))
+        {
+            return -WallPenalty;
+        }
+
         if (world.IsEnemyNest(cx, cy, colony.Id))
         {
             return -WallPenalty;

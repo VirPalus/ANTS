@@ -14,8 +14,16 @@ ANTS/
 │   ├── Engine.Designer.cs               WinForms designer partial
 │   ├── FastSKGLControl.cs               Low-overhead SKGLControl wrapper
 │   ├── AntRenderer.cs                   Sprite atlas builder (GPU batched drawing)
+│   ├── Camera.cs                        Zoom + pan transform
 │   ├── UiButton.cs                      UI control data
-│   └── PlacingMode.cs                   Enum for mouse placement state
+│   ├── PlacingMode.cs                   Enum for mouse placement state
+│   └── Ui/
+│       ├── UiTopBar.cs                  Pause/speed controls bar
+│       ├── UiSegmentedControl.cs        Speed selector pill
+│       ├── UiStartOverlay.cs            Map selection screen
+│       ├── UiPanel.cs                   Rounded-rect drawing helpers
+│       ├── UiLineChart.cs               Population graph
+│       └── UiTheme.cs                   Central dark-theme palette
 └── Simulation/
     ├── Ant.cs                           Ant entity data only
     ├── AntBehavior.cs                   Per-ant pipeline orchestrator
@@ -153,6 +161,59 @@ Each colony starts with `Colony.StartingFood` units in its store. Every `SpawnSy
 ## Rendering
 
 `Engine` drives a fixed-step simulation via `Stopwatch` tick accumulator and renders each frame through a `FastSKGLControl`. `AntRenderer` builds a supersampled two-row sprite atlas (row 0 = plain body, row 1 = body with red food marker) containing 16 stride frames. Ants are drawn in one `DrawAtlas` call per colony, colored in a single pass by an `SKColorFilter` matrix that simultaneously tints the white body to the colony color and remaps the red food marker to green. The pheromone overlay renders `HomeTrail` in colony color and `FoodTrail` in green, alpha-weighted by intensity.
+
+---
+
+## Performance optimization rules (NEVER FORGET)
+
+These rules were learned through painful regressions. Breaking any of them can drop FPS from 9000 to 600. Always follow them.
+
+### Rule 1: BATCH draw calls with SKPath
+Never call `DrawRect` in a loop for hundreds of same-color cells. Instead, collect them into a single `SKPath` via `AddRect` and draw once with `DrawPath`. This applies to walls, food, nests, and any grid-based rendering. One `DrawPath` call with 2000 sub-rects is vastly faster than 2000 individual `DrawRect` calls because it avoids 2000 GPU state changes.
+
+### Rule 2: SKPicture replays ALL recorded commands every frame
+`DrawPicture(picture)` does NOT blit a texture — it replays every recorded draw command through the GPU pipeline. So an SKPicture containing 2352 individual `DrawRect` calls will execute 2352 GPU draw calls on EVERY frame. Always minimize the number of recorded operations inside an SKPicture, and batch geometry into SKPath before recording.
+
+### Rule 3: Cache everything that doesn't change every frame
+Use SKPicture caching with dirty flags for any rendering that doesn't need per-frame updates. Current cached elements: grid+walls+border (static after map load), food (dirty on count change), nests (dirty on colony add/remove), stats panel (rebuilt every 50ms), buttons (dirty on hover/click), HUD (rebuilt every 50ms), top bar (dirty on pause/speed/resize). When food is eaten or placed, food count changes trigger a rebuild.
+
+### Rule 4: No grid lines
+Grid lines (one line per cell boundary, ~322 segments for a 200x120 map) are purely cosmetic and invisible at normal zoom. They were removed because they added 322 line segments to the grid SKPicture replay, costing ~0.3ms/frame for zero visual benefit at overview zoom. If grid lines are ever wanted, they must be: (a) zoom-dependent (only drawn when `Camera.Zoom > 2.0`), (b) viewport-culled (only visible cells), and (c) in a separate SKPicture from the main grid.
+
+### Rule 5: No SKRoundRect in per-frame or high-frequency paths
+`SKRoundRect` requires GPU tessellation (converting the rounded corners into triangles). `DrawRect` is 2 triangles = instant. Use `DrawRect` for all buttons, panels, cards, and controls. SKRoundRect is acceptable only in SKPicture recordings that execute once (like the world border at map load).
+
+### Rule 6: Disable IsAntialias on non-text paints
+For axis-aligned rectangles, anti-aliasing is pointless overhead. Set `IsAntialias = false` on all fill and stroke paints. Only enable it for text paints (`_textPaint`, `_titlePaint`, `_smallTextPaint`) and the ant paint.
+
+### Rule 7: Use FilterQuality.Low (not High) for DrawAtlas
+`FilterQuality.High` = bicubic sampling = 16 texture lookups per pixel. `FilterQuality.Low` = bilinear = 4 lookups. For sprite atlas drawing, Low is sufficient and 4x cheaper.
+
+### Rule 8: Share paint objects, don't create per-frame
+Never allocate `new SKPaint()` in the render loop. Engine owns a set of shared paints (`_fillPaint`, `_strokePaint`, `_textPaint`, `_borderPaint`, `_antPaint`) that are reused by swapping `.Color` before each draw. Only create temporary paints inside SKPicture recording methods (using `using` for disposal).
+
+### Rule 9: Minimize Stopwatch calls in the hot path
+Each `Stopwatch.GetTimestamp()` is a kernel call. Don't call it for empty sections (e.g., skip ant timing when there are 0 ants).
+
+### Rule 10: Per-frame draw call budget
+The render loop should execute approximately: Clear (1) + Save/Restore (2) + DrawPicture × 6 (grid, food, nests, topbar, stats, buttons, hud = 7) + ant DrawAtlas per colony (0–6) = ~10–16 GPU calls for a typical frame with no ants. Each SKPicture replay adds its internal call count, but with proper batching (Rule 1) the grid picture replays only ~3 calls (world bg, batched walls, border).
+
+### Current render pipeline (OnSkPaintSurface)
+```
+Clear(BgRoot) →
+  [Start overlay if visible → return]
+  Save → Camera.Apply →
+    DrawPicture(gridPicture)        [world bg + batched walls + border = ~3 ops]
+    DrawPicture(foodPicture)        [1 batched DrawPath = 1 op, cached]
+    DrawPicture(nestsPicture)       [1 DrawPath per colony, cached]
+    DrawAnts per colony             [1 DrawAtlas per colony, skip if 0 ants]
+    Placement ghosts                [0-1 DrawPath + 0-1 DrawRect]
+  Restore →
+  DrawPicture(topBarPicture)        [~18 ops, cached until state change]
+  DrawPicture(statsPicture)         [cached, rebuilt every 50ms]
+  DrawPicture(buttonsPicture)       [cached, rebuilt on hover/click]
+  DrawPicture(hudPicture)           [cached, rebuilt every 50ms]
+```
 
 ---
 

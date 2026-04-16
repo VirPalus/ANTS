@@ -14,4 +14,13 @@
     <PackageReference Include="SkiaSharp.Views.WindowsForms" Version="2.88.8" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Ship map PNGs next to the exe so MapLoader.LoadFirstMapOrDemo
+         can find them at runtime without reaching back into the
+         project tree. -->
+    <None Include="Maps\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
