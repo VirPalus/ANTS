@@ -155,39 +155,16 @@ public class Colony
         }
     }
 
+    // 25 enemies = 50 HP/s damage → nest dead in 2s. Beyond this, the exact
+    // count is irrelevant — the nest is at maximum danger. Early-exit saves
+    // cycles in worst-case siege scenarios.
+    public const int MaxEnemyCountForDanger = 25;
+
     private int CountEnemiesNearNest(World world)
     {
-        int count = 0;
-        IReadOnlyList<Colony> colonies = world.Colonies;
-        int colonyCount = colonies.Count;
         float nestCx = NestX + 0.5f;
         float nestCy = NestY + 0.5f;
-        for (int c = 0; c < colonyCount; c++)
-        {
-            Colony other = colonies[c];
-            if (other.Id == Id)
-            {
-                continue;
-            }
-            IReadOnlyList<Ant> enemies = other.Ants;
-            int enemyCount = enemies.Count;
-            for (int e = 0; e < enemyCount; e++)
-            {
-                Ant enemy = enemies[e];
-                if (enemy.IsDead)
-                {
-                    continue;
-                }
-                float dx = enemy.X - nestCx;
-                float dy = enemy.Y - nestCy;
-                float distSq = dx * dx + dy * dy;
-                if (distSq < NestAttackRadiusSq)
-                {
-                    count++;
-                }
-            }
-        }
-        return count;
+        return world.SpatialGrid.CountInRadius(nestCx, nestCy, NestAttackRadius, Id, MaxEnemyCountForDanger);
     }
 
     public void UpdateProtectedRadius()

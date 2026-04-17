@@ -16,49 +16,27 @@ public static class CombatSystem
             return;
         }
 
-        IReadOnlyList<Colony> colonies = world.Colonies;
-        int colonyCount = colonies.Count;
+        // Use spatial hash grid for O(nearby) enemy lookup.
+        QueryState state = new QueryState();
+        state.ClosestEnemy = null;
+        state.ClosestEnemyColony = null;
+        state.ClosestCombatDistSq = AttackRangeSq;
+        state.Colonies = world.Colonies;
+        state.World = world;
+        state.QueryCenterX = ant.X;
+        state.QueryCenterY = ant.Y;
 
-        Ant? closestEnemy = null;
-        Colony? closestColony = null;
-        float closestDistSq = AttackRangeSq;
+        world.SpatialGrid.QueryRadius(ant.X, ant.Y, AttackRange, colony.Id, CombatFindClosestCallback, ref state);
 
-        for (int c = 0; c < colonyCount; c++)
-        {
-            Colony other = colonies[c];
-            if (other.Id == colony.Id)
-            {
-                continue;
-            }
-
-            IReadOnlyList<Ant> enemies = other.Ants;
-            int enemyCount = enemies.Count;
-            for (int e = 0; e < enemyCount; e++)
-            {
-                Ant target = enemies[e];
-                if (target.IsDead)
-                {
-                    continue;
-                }
-                float dx = target.X - ant.X;
-                float dy = target.Y - ant.Y;
-                float distSq = dx * dx + dy * dy;
-                if (distSq < closestDistSq)
-                {
-                    closestDistSq = distSq;
-                    closestEnemy = target;
-                    closestColony = other;
-                }
-            }
-        }
-
-        if (closestEnemy == null)
+        if (state.ClosestEnemy == null)
         {
             return;
         }
 
         ant.EngagementTimer = EngagementHoldSeconds;
-        ant.LastCombatTargetColonyId = closestColony!.Id;
+        ant.LastCombatTargetColonyId = state.ClosestEnemyColony!.Id;
+        Ant closestEnemy = state.ClosestEnemy;
+        Colony closestColony = state.ClosestEnemyColony;
 
         if (ant.AttackCooldown > 0f)
         {
@@ -85,6 +63,38 @@ public static class CombatSystem
         world.DecrementDensity(cx, cy);
         world.DropFoodFromDeadAnt(cx, cy, target.CarryingFood);
         targetColony.RegisterCombatDeath(target.X, target.Y);
+    }
+
+    private static readonly SpatialGrid.QueryCallback CombatFindClosestCallback = OnCombatFindClosest;
+
+    private static void OnCombatFindClosest(ref QueryState state, Ant target, int colonyId, float dx, float dy, float distSq)
+    {
+        // Ant may have died during this tick (grid is built at tick start).
+        if (target.IsDead)
+        {
+            return;
+        }
+        // Wall occlusion: can't attack through walls.
+        if (!state.World!.HasLineOfSight(state.QueryCenterX, state.QueryCenterY, target.X, target.Y))
+        {
+            return;
+        }
+        if (distSq < state.ClosestCombatDistSq)
+        {
+            state.ClosestCombatDistSq = distSq;
+            state.ClosestEnemy = target;
+            // Resolve Colony from colonyId via the colonies list.
+            IReadOnlyList<Colony> colonies = state.Colonies!;
+            int count = colonies.Count;
+            for (int i = 0; i < count; i++)
+            {
+                if (colonies[i].Id == colonyId)
+                {
+                    state.ClosestEnemyColony = colonies[i];
+                    break;
+                }
+            }
+        }
     }
 
     public static void DecrementCooldown(Ant ant, float dt)

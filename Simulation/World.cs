@@ -20,6 +20,7 @@ public class World
     public int Width { get; }
     public int Height { get; }
     public float SimulationTime { get; private set; }
+    public SpatialGrid SpatialGrid { get; private set; }
 
     private List<Colony> _colonies;
     private List<Colony> _deadColonies;
@@ -69,6 +70,7 @@ public class World
         _foodCount = 0;
         _random = new Random();
         SimulationTime = 0f;
+        SpatialGrid = new SpatialGrid(Width, Height);
         ComputeWallDistance();
     }
 
@@ -228,10 +230,100 @@ public class World
         return _cells[x, y] == CellType.Wall;
     }
 
+    /// <summary>
+    /// Fast line-of-sight check using DDA ray march through the grid.
+    /// Returns true if no wall cell blocks the straight line from (x0,y0) to (x1,y1).
+    /// </summary>
+    public bool HasLineOfSight(float x0, float y0, float x1, float y1)
+    {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+
+        int cellX = (int)x0;
+        int cellY = (int)y0;
+        int endCellX = (int)x1;
+        int endCellY = (int)y1;
+
+        // Already in the same cell — trivially visible.
+        if (cellX == endCellX && cellY == endCellY)
+        {
+            return true;
+        }
+
+        // Direction of stepping (+1 or -1).
+        int stepX = dx > 0 ? 1 : -1;
+        int stepY = dy > 0 ? 1 : -1;
+
+        // Distance along the ray to cross one full cell in X or Y.
+        float tDeltaX = dx != 0 ? Math.Abs(1f / dx) : float.MaxValue;
+        float tDeltaY = dy != 0 ? Math.Abs(1f / dy) : float.MaxValue;
+
+        // Distance from start to the first X or Y cell boundary.
+        float tMaxX;
+        if (dx > 0)
+        {
+            tMaxX = (cellX + 1 - x0) * tDeltaX;
+        }
+        else if (dx < 0)
+        {
+            tMaxX = (x0 - cellX) * tDeltaX;
+        }
+        else
+        {
+            tMaxX = float.MaxValue;
+        }
+
+        float tMaxY;
+        if (dy > 0)
+        {
+            tMaxY = (cellY + 1 - y0) * tDeltaY;
+        }
+        else if (dy < 0)
+        {
+            tMaxY = (y0 - cellY) * tDeltaY;
+        }
+        else
+        {
+            tMaxY = float.MaxValue;
+        }
+
+        // March through cells until we reach the target cell or hit a wall.
+        // Safety limit to avoid infinite loops on edge cases.
+        int maxSteps = Math.Abs(endCellX - cellX) + Math.Abs(endCellY - cellY) + 2;
+        for (int step = 0; step < maxSteps; step++)
+        {
+            if (tMaxX < tMaxY)
+            {
+                cellX += stepX;
+                tMaxX += tDeltaX;
+            }
+            else
+            {
+                cellY += stepY;
+                tMaxY += tDeltaY;
+            }
+
+            if (cellX == endCellX && cellY == endCellY)
+            {
+                return true; // Reached target without hitting a wall.
+            }
+
+            if (IsWall(cellX, cellY))
+            {
+                return false; // Wall blocks line of sight.
+            }
+        }
+
+        return true; // Fallback: assume visible.
+    }
+
     public void Update()
     {
         float dt = TickSeconds;
         SimulationTime += dt;
+
+        // Rebuild spatial hash once per tick BEFORE any ant updates.
+        SpatialGrid.Rebuild(_colonies);
 
         int colonyCount = _colonies.Count;
         for (int i = 0; i < colonyCount; i++)

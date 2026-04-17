@@ -87,19 +87,21 @@ public static class VisionSystem
     {
         int closestId = 0;
         float closestDistSq = float.MaxValue;
+        float range = (float)Math.Sqrt(rangeSq);
 
-        IReadOnlyList<Colony> colonies = world.Colonies;
-        int colonyCount = colonies.Count;
-        for (int c = 0; c < colonyCount; c++)
+        // Enemy nests: still iterate colonies (only 2-4, trivial).
+        if (nestWeight != 0f)
         {
-            Colony other = colonies[c];
-            if (other.Id == colony.Id)
+            IReadOnlyList<Colony> colonies = world.Colonies;
+            int colonyCount = colonies.Count;
+            for (int c = 0; c < colonyCount; c++)
             {
-                continue;
-            }
+                Colony other = colonies[c];
+                if (other.Id == colony.Id)
+                {
+                    continue;
+                }
 
-            if (nestWeight != 0f)
-            {
                 float nestCenterX = other.NestX + 0.5f;
                 float nestCenterY = other.NestY + 0.5f;
                 float ndx = nestCenterX - ant.X;
@@ -108,7 +110,7 @@ public static class VisionSystem
                 if (nDistSq <= rangeSq)
                 {
                     float nDist = (float)Math.Sqrt(nDistSq);
-                    if (nDist > 0.001f)
+                    if (nDist > 0.001f && world.HasLineOfSight(ant.X, ant.Y, nestCenterX, nestCenterY))
                     {
                         float falloff = nestWeight / (1f + nDist);
                         sumX += (ndx / nDist) * falloff;
@@ -121,41 +123,62 @@ public static class VisionSystem
                     }
                 }
             }
-
-            if (antWeight != 0f)
-            {
-                IReadOnlyList<Ant> enemies = other.Ants;
-                int enemyCount = enemies.Count;
-                for (int e = 0; e < enemyCount; e++)
-                {
-                    Ant target = enemies[e];
-                    if (target.IsDead)
-                    {
-                        continue;
-                    }
-                    float dx = target.X - ant.X;
-                    float dy = target.Y - ant.Y;
-                    float distSq = dx * dx + dy * dy;
-                    if (distSq > rangeSq)
-                    {
-                        continue;
-                    }
-                    float dist = (float)Math.Sqrt(distSq);
-                    if (dist < 0.001f)
-                    {
-                        continue;
-                    }
-                    float falloff = antWeight / (1f + dist);
-                    sumX += (dx / dist) * falloff;
-                    sumY += (dy / dist) * falloff;
-                    if (distSq < closestDistSq)
-                    {
-                        closestDistSq = distSq;
-                        closestId = other.Id;
-                    }
-                }
-            }
         }
+
+        // Enemy ants: use spatial hash grid for O(nearby) lookup.
+        if (antWeight != 0f)
+        {
+            QueryState state = new QueryState();
+            state.SumX = sumX;
+            state.SumY = sumY;
+            state.ClosestEnemyColonyId = closestId;
+            state.ClosestDistSq = closestDistSq;
+            state.ClosestCombatDistSq = antWeight; // repurpose as antWeight for callback
+            state.World = world;
+            state.QueryCenterX = ant.X;
+            state.QueryCenterY = ant.Y;
+
+            world.SpatialGrid.QueryRadius(ant.X, ant.Y, range, colony.Id, VisionEnemyAntCallback, ref state);
+
+            sumX = state.SumX;
+            sumY = state.SumY;
+            closestId = state.ClosestEnemyColonyId;
+        }
+
         return closestId;
+    }
+
+    private static readonly SpatialGrid.QueryCallback VisionEnemyAntCallback = OnVisionEnemyAnt;
+
+    private static void OnVisionEnemyAnt(ref QueryState state, Ant target, int colonyId, float dx, float dy, float distSq)
+    {
+        // Ant may have died during this tick (grid is built at tick start).
+        if (target.IsDead)
+        {
+            return;
+        }
+        float dist = (float)Math.Sqrt(distSq);
+        if (dist < 0.001f)
+        {
+            return;
+        }
+        // Wall occlusion: can't see through walls.
+        if (!state.World!.HasLineOfSight(state.QueryCenterX, state.QueryCenterY, target.X, target.Y))
+        {
+            return;
+        }
+        // antWeight is baked into the call site via the accumulated state;
+        // we use a fixed weight here matching the original pattern.
+        // The weight comes from role.GetVisualAttraction which varies per role.
+        // We store it in ClosestCombatDistSq as a temporary slot.
+        float weight = state.ClosestCombatDistSq; // repurposed as antWeight
+        float falloff = weight / (1f + dist);
+        state.SumX += (dx / dist) * falloff;
+        state.SumY += (dy / dist) * falloff;
+        if (distSq < state.ClosestDistSq)
+        {
+            state.ClosestDistSq = distSq;
+            state.ClosestEnemyColonyId = colonyId;
+        }
     }
 }
