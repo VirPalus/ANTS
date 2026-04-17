@@ -8,6 +8,8 @@ public static class CombatSystem
     private const float AttackCooldownSeconds = 0.3f;
     private const float EngagementHoldSeconds = 0.4f;
     private const int AttackDamage = 1;
+    public const float LungeDuration = 0.15f;  // total lunge animation time
+    public const float LungeDistance = 0.5f;    // max offset in cells
 
     public static void Tick(Ant ant, Colony colony, World world)
     {
@@ -46,6 +48,22 @@ public static class CombatSystem
         DamageTarget(closestEnemy, closestColony, world);
         ant.AttackCooldown = AttackCooldownSeconds;
         ant.InternalClock = 0f;
+
+        // Start lunge animation toward the target.
+        float ldx = closestEnemy.X - ant.X;
+        float ldy = closestEnemy.Y - ant.Y;
+        float ldist = (float)Math.Sqrt(ldx * ldx + ldy * ldy);
+        if (ldist > 0.001f)
+        {
+            ant.LungeDirX = ldx / ldist;
+            ant.LungeDirY = ldy / ldist;
+        }
+        else
+        {
+            ant.LungeDirX = (float)Math.Cos(ant.Heading);
+            ant.LungeDirY = (float)Math.Sin(ant.Heading);
+        }
+        ant.LungeTimer = LungeDuration;
         colony.PheromoneGrid.DepositEnemy(closestColony.Id, (int)ant.X, (int)ant.Y, 1.0f);
     }
 
@@ -105,6 +123,14 @@ public static class CombatSystem
             if (ant.AttackCooldown < 0f)
             {
                 ant.AttackCooldown = 0f;
+            }
+        }
+        if (ant.LungeTimer > 0f)
+        {
+            ant.LungeTimer -= dt;
+            if (ant.LungeTimer < 0f)
+            {
+                ant.LungeTimer = 0f;
             }
         }
         if (ant.EngagementTimer > 0f)

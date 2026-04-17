@@ -30,6 +30,11 @@ public class Ant
     // per-target EnemyTrail layer while EngagementTimer is running.
     public int LastCombatTargetColonyId;
 
+    // Lunge animation: short forward thrust when attacking.
+    public float LungeTimer;     // counts down from LungeDuration to 0
+    public float LungeDirX;      // normalized direction toward target
+    public float LungeDirY;
+
     public AntRole Role;
     public AntGoal Goal;
 
@@ -54,6 +59,9 @@ public class Ant
         IsDead = false;
         DetectedEnemyColonyId = 0;
         LastCombatTargetColonyId = 0;
+        LungeTimer = 0f;
+        LungeDirX = 0f;
+        LungeDirY = 0f;
         Role = role;
         Goal = new AntGoal(GoalType.Explore);
     }

@@ -1284,6 +1284,18 @@ public partial class Engine : Form
             Ant ant = antsSpan[i];
             float centerX = ant.X * CellSize;
             float centerY = ant.Y * CellSize;
+
+            // Lunge animation offset: quick thrust forward, slow return.
+            if (ant.LungeTimer > 0f)
+            {
+                float t = ant.LungeTimer / CombatSystem.LungeDuration; // 1→0
+                // Triangle wave: peak at t=0.5 (midpoint of animation).
+                float offset = t > 0.5f ? (1f - t) * 2f : t * 2f;
+                float lungePixels = offset * CombatSystem.LungeDistance * CellSize;
+                centerX += ant.LungeDirX * lungePixels;
+                centerY += ant.LungeDirY * lungePixels;
+            }
+
             float heading = ant.Heading;
             float headingCos = (float)Math.Cos(heading);
             float headingSin = (float)Math.Sin(heading);
