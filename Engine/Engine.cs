@@ -2,6 +2,7 @@ namespace ANTS;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 using SkiaSharp;
@@ -554,9 +555,9 @@ public partial class Engine : Form
     {
         if (Math.Abs(speed - Math.Round(speed)) < 0.001)
         {
-            return ((int)Math.Round(speed)).ToString() + "x";
+            return ((int)Math.Round(speed)).ToString(CultureInfo.InvariantCulture) + "x";
         }
-        return speed.ToString("0.##") + "x";
+        return speed.ToString("0.##", CultureInfo.InvariantCulture) + "x";
     }
 
     private void TogglePause()
@@ -610,25 +611,25 @@ public partial class Engine : Form
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("FPS", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextStrong;
-            recordingCanvas.DrawText(_fps.ToString(), valX, baseY, hudText);
+            recordingCanvas.DrawText(_fps.ToString(CultureInfo.InvariantCulture), valX, baseY, hudText);
 
             baseY += lineStep;
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("Frame", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_lastFrameMs.ToString("F2") + " ms", valX, baseY, hudText);
+            recordingCanvas.DrawText(_lastFrameMs.ToString("F2", CultureInfo.InvariantCulture) + " ms", valX, baseY, hudText);
 
             baseY += lineStep;
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("Sim", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_simStageMs.ToString("F2") + " ms", valX, baseY, hudText);
+            recordingCanvas.DrawText(_simStageMs.ToString("F2", CultureInfo.InvariantCulture) + " ms", valX, baseY, hudText);
 
             baseY += lineStep;
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("Ants", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_antStageMs.ToString("F3") + " ms", valX, baseY, hudText);
+            recordingCanvas.DrawText(_antStageMs.ToString("F3", CultureInfo.InvariantCulture) + " ms", valX, baseY, hudText);
         }
 
         Replace(ref _hudPicture!, recorder.EndRecording());
@@ -1416,7 +1417,7 @@ public partial class Engine : Form
         _textPaint.Color = UiTheme.TextBody;
         canvas.DrawText(label, x, y + 11, _textPaint);
 
-        string countStr = count.ToString();
+        string countStr = count.ToString(CultureInfo.InvariantCulture);
         float labelW = _textPaint.MeasureText(label);
         _textPaint.Color = UiTheme.TextStrong;
         canvas.DrawText(countStr, x + labelW + 6f, y + 11, _textPaint);
@@ -1927,11 +1928,4 @@ public partial class Engine : Form
     private static void DrawInfoLine(SKCanvas canvas, SKPaint textPaint, float x, float valX, ref float y, float lineH, string label, string value)
     {
         SKColor saved = textPaint.Color;
-        textPaint.Color = new SKColor(140, 140, 155);
-        canvas.DrawText(label, x, y, textPaint);
-        textPaint.Color = new SKColor(220, 220, 230);
-        canvas.DrawText(value, valX, y, textPaint);
-        textPaint.Color = saved;
-        y += lineH;
-    }
-}
+        textPaint.Color = new SKColor(140, 

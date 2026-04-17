@@ -31,7 +31,10 @@ public static class EnemyDetectionSystem
                 int owner = world.GetNestOwner(nx, ny);
                 if (owner != 0 && owner != colony.Id)
                 {
-                    colony.PheromoneGrid.DepositEnemy(owner, centerX, centerY, DetectionDepositIntensity);
+                    float edx = ant.X - (nx + 0.5f);
+                    float edy = ant.Y - (ny + 0.5f);
+                    float eDist = (float)Math.Sqrt(edx * edx + edy * edy);
+                    colony.PheromoneGrid.DepositEnemy(owner, centerX, centerY, DetectionDepositIntensity, eDist);
                     colony.RegisterOffenseSignal(OffenseSignalAmount);
                     RegisterThreatIfNearOwnNest(ant, colony);
                     return;
@@ -41,7 +44,7 @@ public static class EnemyDetectionSystem
 
         if (ant.DetectedEnemyColonyId != 0)
         {
-            colony.PheromoneGrid.DepositEnemy(ant.DetectedEnemyColonyId, centerX, centerY, DetectionDepositIntensity);
+            colony.PheromoneGrid.DepositEnemy(ant.DetectedEnemyColonyId, centerX, centerY, DetectionDepositIntensity, ant.DistanceFromEnemy);
             colony.RegisterOffenseSignal(OffenseSignalAmount);
             RegisterThreatIfNearOwnNest(ant, colony);
             ant.DetectedEnemyColonyId = 0;

@@ -42,7 +42,7 @@ public static class SpawnSystem
         int spawnCellY = (int)spawnY;
         world.IncrementDensity(spawnCellX, spawnCellY);
 
-        colony.PheromoneGrid.Deposit(PheromoneChannel.HomeTrail, spawnCellX, spawnCellY, PheromoneGrid.PermanentHomeIntensity);
+        colony.PheromoneGrid.Deposit(PheromoneChannel.HomeTrail, spawnCellX, spawnCellY, PheromoneGrid.PermanentHomeIntensity, 0f);
     }
 
     private static float ComputeSpawnInterval(Colony colony)

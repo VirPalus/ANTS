@@ -13,8 +13,10 @@ public class PheromoneGrid
     private readonly int _width;
     private readonly int _height;
     private readonly float[][,] _intensity;
+    private readonly float[][,] _distance;
     private readonly bool[,] _permanentHome;
     private readonly Dictionary<int, float[,]> _enemyTrails;
+    private readonly Dictionary<int, float[,]> _enemyDistances;
 
     private readonly List<int>[] _activeCells;
     private readonly bool[][,] _activeSet;
@@ -27,6 +29,7 @@ public class PheromoneGrid
         _width = width;
         _height = height;
         _intensity = new float[ChannelCount][,];
+        _distance = new float[ChannelCount][,];
         _activeCells = new List<int>[ChannelCount];
         _activeSet = new bool[ChannelCount][,];
         for (int c = 0; c < ChannelCount; c++)
@@ -36,11 +39,13 @@ public class PheromoneGrid
                 continue;
             }
             _intensity[c] = new float[width, height];
+            _distance[c] = new float[width, height];
             _activeCells[c] = new List<int>(256);
             _activeSet[c] = new bool[width, height];
         }
         _permanentHome = new bool[width, height];
         _enemyTrails = new Dictionary<int, float[,]>();
+        _enemyDistances = new Dictionary<int, float[,]>();
         _enemyActiveCells = new Dictionary<int, List<int>>();
         _enemyActiveSet = new Dictionary<int, bool[,]>();
     }
@@ -54,6 +59,7 @@ public class PheromoneGrid
         _permanentHome[x, y] = true;
         int c = (int)PheromoneChannel.HomeTrail;
         _intensity[c][x, y] = PermanentHomeIntensity;
+        _distance[c][x, y] = 0f;
         if (!_activeSet[c][x, y])
         {
             _activeSet[c][x, y] = true;
@@ -61,7 +67,7 @@ public class PheromoneGrid
         }
     }
 
-    public void Deposit(PheromoneChannel channel, int x, int y, float intensity)
+    public void Deposit(PheromoneChannel channel, int x, int y, float intensity, float goalDistance)
     {
         if (channel == PheromoneChannel.EnemyTrail)
         {
@@ -77,6 +83,7 @@ public class PheromoneGrid
         }
         int c = (int)channel;
         float[,] grid = _intensity[c];
+        float[,] distGrid = _distance[c];
         float existing = grid[x, y];
 
         if (!_activeSet[c][x, y])
@@ -88,16 +95,21 @@ public class PheromoneGrid
         if (intensity > existing)
         {
             grid[x, y] = intensity > MaxIntensity ? MaxIntensity : intensity;
+            distGrid[x, y] = goalDistance;
         }
         else
         {
             float reinforced = existing + intensity * ReinforceFraction;
             if (reinforced > EstablishedRouteMax) reinforced = EstablishedRouteMax;
             grid[x, y] = reinforced;
+            if (goalDistance < distGrid[x, y])
+            {
+                distGrid[x, y] = goalDistance;
+            }
         }
     }
 
-    public void DepositEnemy(int targetColonyId, int x, int y, float intensity)
+    public void DepositEnemy(int targetColonyId, int x, int y, float intensity, float goalDistance)
     {
         if (targetColonyId <= 0)
         {
@@ -112,12 +124,19 @@ public class PheromoneGrid
             return;
         }
         float[,]? grid;
+        float[,]? distGrid;
         if (!_enemyTrails.TryGetValue(targetColonyId, out grid))
         {
             grid = new float[_width, _height];
+            distGrid = new float[_width, _height];
             _enemyTrails[targetColonyId] = grid;
+            _enemyDistances[targetColonyId] = distGrid;
             _enemyActiveCells[targetColonyId] = new List<int>(128);
             _enemyActiveSet[targetColonyId] = new bool[_width, _height];
+        }
+        else
+        {
+            distGrid = _enemyDistances[targetColonyId];
         }
 
         bool[,] activeSet = _enemyActiveSet[targetColonyId];
@@ -131,12 +150,17 @@ public class PheromoneGrid
         if (intensity > existing)
         {
             grid[x, y] = intensity > MaxIntensity ? MaxIntensity : intensity;
+            distGrid[x, y] = goalDistance;
         }
         else
         {
             float reinforced = existing + intensity * ReinforceFraction;
             if (reinforced > EstablishedRouteMax) reinforced = EstablishedRouteMax;
             grid[x, y] = reinforced;
+            if (goalDistance < distGrid[x, y])
+            {
+                distGrid[x, y] = goalDistance;
+            }
         }
     }
 
@@ -160,6 +184,30 @@ public class PheromoneGrid
             return max;
         }
         return _intensity[(int)channel][x, y];
+    }
+
+    public float GetDistance(PheromoneChannel channel, int x, int y)
+    {
+        if (!InBounds(x, y))
+        {
+            return float.MaxValue;
+        }
+        if (channel == PheromoneChannel.EnemyTrail)
+        {
+            float min = float.MaxValue;
+            foreach (KeyValuePair<int, float[,]> kv in _enemyTrails)
+            {
+                if (kv.Value[x, y] > 0f)
+                {
+                    float d = _enemyDistances[kv.Key][x, y];
+                    if (d < min) min = d;
+                }
+            }
+            return min;
+        }
+        int c = (int)channel;
+        if (_intensity[c][x, y] <= 0f) return float.MaxValue;
+        return _distance[c][x, y];
     }
 
     public void DegradeInPlace(PheromoneChannel channel, int x, int y, float factor)
@@ -186,6 +234,7 @@ public class PheromoneGrid
     public void ClearEnemyTrailForTarget(int targetColonyId)
     {
         _enemyTrails.Remove(targetColonyId);
+        _enemyDistances.Remove(targetColonyId);
         _enemyActiveCells.Remove(targetColonyId);
         _enemyActiveSet.Remove(targetColonyId);
     }
@@ -202,6 +251,7 @@ public class PheromoneGrid
     {
         int c = (int)channel;
         float[,] grid = _intensity[c];
+        float[,] distGrid = _distance[c];
         bool isHome = channel == PheromoneChannel.HomeTrail;
         List<int> active = _activeCells[c];
         bool[,] activeSet = _activeSet[c];
@@ -226,6 +276,7 @@ public class PheromoneGrid
             if (v <= 0f)
             {
                 activeSet[x, y] = false;
+                distGrid[x, y] = 0f;
                 continue;
             }
 
@@ -234,6 +285,7 @@ public class PheromoneGrid
             {
                 v = 0f;
                 grid[x, y] = 0f;
+                distGrid[x, y] = 0f;
                 activeSet[x, y] = false;
                 continue;
             }
@@ -255,6 +307,7 @@ public class PheromoneGrid
         {
             int targetId = kv.Key;
             float[,] grid = kv.Value;
+            float[,] distGrid = _enemyDistances[targetId];
             List<int> active = _enemyActiveCells[targetId];
             bool[,] activeSet = _enemyActiveSet[targetId];
 
@@ -270,6 +323,7 @@ public class PheromoneGrid
                 if (v <= 0f)
                 {
                     activeSet[x, y] = false;
+                    distGrid[x, y] = 0f;
                     continue;
                 }
 
@@ -278,6 +332,7 @@ public class PheromoneGrid
                 {
                     v = 0f;
                     grid[x, y] = 0f;
+                    distGrid[x, y] = 0f;
                     activeSet[x, y] = false;
                     continue;
                 }

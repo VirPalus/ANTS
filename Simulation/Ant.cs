@@ -24,6 +24,9 @@ public class Ant
     public int DetectedEnemyColonyId;
     public int LastCombatTargetColonyId;
 
+    public float DistanceFromFoodSource;
+    public float DistanceFromEnemy;
+
     public float LungeTimer;
     public float LungeDirX;
     public float LungeDirY;
@@ -52,6 +55,8 @@ public class Ant
         IsDead = false;
         DetectedEnemyColonyId = 0;
         LastCombatTargetColonyId = 0;
+        DistanceFromFoodSource = 0f;
+        DistanceFromEnemy = 0f;
         LungeTimer = 0f;
         LungeDirX = 0f;
         LungeDirY = 0f;

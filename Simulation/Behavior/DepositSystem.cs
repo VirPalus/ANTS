@@ -33,12 +33,23 @@ public static class DepositSystem
             int targetId = ant.LastCombatTargetColonyId;
             if (targetId != 0)
             {
-                colony.PheromoneGrid.DepositEnemy(targetId, cellX, cellY, intensity);
+                colony.PheromoneGrid.DepositEnemy(targetId, cellX, cellY, intensity, ant.DistanceFromEnemy);
             }
         }
         else
         {
-            colony.PheromoneGrid.Deposit(channel, cellX, cellY, intensity);
+            float goalDistance;
+            if (channel == PheromoneChannel.HomeTrail)
+            {
+                float dx = ant.X - (colony.NestX + 0.5f);
+                float dy = ant.Y - (colony.NestY + 0.5f);
+                goalDistance = (float)Math.Sqrt(dx * dx + dy * dy);
+            }
+            else
+            {
+                goalDistance = ant.DistanceFromFoodSource;
+            }
+            colony.PheromoneGrid.Deposit(channel, cellX, cellY, intensity, goalDistance);
         }
 
         float r = world.NextRandomFloat();

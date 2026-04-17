@@ -19,7 +19,7 @@ public class AttackerRole : AntRole
         SensorInterval = 0.20f;
         AutonomyMax = 350f;
         ExplorationRate = 0.10f;
-        GradientThreshold = 0.015f;
+
         DensityPenalty = 0.060f;
         ActiveDegradeChance = 0.15f;
         ActiveDegradeFactor = 0.98f;

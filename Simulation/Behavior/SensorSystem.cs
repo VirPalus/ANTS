@@ -12,10 +12,16 @@ public static class SensorSystem
     private const int SampleRadius = 1;
     private const float LostHomingWeight = 0.15f;
 
+    private const float StrengthWeight = 0.35f;
+    private const float DistanceWeight = 0.65f;
+    private const float DetectionThreshold = 0.005f;
+
     public static void Sense(Ant ant, Colony colony, World world)
     {
         AntRole role = ant.Role;
         PheromoneChannel followChannel = role.GetFollowChannel(ant);
+
+        bool wantDecreasing = ShouldFollowDecreasing(ant, followChannel);
 
         bool suppressExploration = ant.CarryingFood > 0 && ant.Goal.Type == GoalType.ReturnHome;
         if (!suppressExploration)
@@ -29,19 +35,17 @@ public static class SensorSystem
             }
         }
 
-        float baseline = colony.PheromoneGrid.Get(followChannel, (int)ant.X, (int)ant.Y);
-
         float centerAngle = ant.Heading;
         float leftAngle = ant.Heading - role.SensorAngleRad;
         float rightAngle = ant.Heading + role.SensorAngleRad;
 
-        float centerValue = SampleCell(ant, world, colony, followChannel, centerAngle, role.SensorDistance, role.DensityPenalty, baseline);
-        float leftValue = SampleCell(ant, world, colony, followChannel, leftAngle, role.SensorDistance, role.DensityPenalty, baseline);
-        float rightValue = SampleCell(ant, world, colony, followChannel, rightAngle, role.SensorDistance, role.DensityPenalty, baseline);
+        float centerValue = SampleCell(ant, world, colony, followChannel, centerAngle, role.SensorDistance, role.DensityPenalty, wantDecreasing);
+        float leftValue = SampleCell(ant, world, colony, followChannel, leftAngle, role.SensorDistance, role.DensityPenalty, wantDecreasing);
+        float rightValue = SampleCell(ant, world, colony, followChannel, rightAngle, role.SensorDistance, role.DensityPenalty, wantDecreasing);
 
         float stochasticBestValue;
         float stochasticBestAngle;
-        RunStochasticSweep(ant, world, colony, followChannel, role, baseline, out stochasticBestValue, out stochasticBestAngle);
+        RunStochasticSweep(ant, world, colony, followChannel, role, wantDecreasing, out stochasticBestValue, out stochasticBestAngle);
 
         float fixedBestValue;
         float fixedBestAngle;
@@ -55,7 +59,7 @@ public static class SensorSystem
             chosenAngle = stochasticBestAngle;
         }
 
-        if (chosenValue > role.GradientThreshold)
+        if (chosenValue > DetectionThreshold)
         {
             ant.CachedSteerAngle = chosenAngle;
             return;
@@ -83,6 +87,29 @@ public static class SensorSystem
         ant.Role.OnLostTrail(ant, colony, world);
     }
 
+    /// <summary>
+    /// Determines if the ant should follow trails toward lower distance values.
+    /// ReturnHome on HomeTrail → yes (go toward nest = lower distance).
+    /// SeekFood on FoodTrail → yes (go toward food = lower distance).
+    /// Scouts on HomeTrail exploring → no (go away from nest = higher distance is fine).
+    /// </summary>
+    private static bool ShouldFollowDecreasing(Ant ant, PheromoneChannel channel)
+    {
+        if (channel == PheromoneChannel.HomeTrail && ant.Goal.Type == GoalType.ReturnHome)
+        {
+            return true;
+        }
+        if (channel == PheromoneChannel.FoodTrail && ant.Goal.Type == GoalType.SeekFood)
+        {
+            return true;
+        }
+        if (channel == PheromoneChannel.EnemyTrail)
+        {
+            return true;
+        }
+        return false;
+    }
+
     private static void PickFixedBest(float center, float left, float right, float centerAngle, float leftAngle, float rightAngle, out float bestValue, out float bestAngle)
     {
         float biasedCenter = center * ForwardBias;
@@ -104,7 +131,14 @@ public static class SensorSystem
         bestAngle = rightAngle;
     }
 
-    private static float SampleCell(Ant ant, World world, Colony colony, PheromoneChannel channel, float angle, float distance, float densityPenalty, float baseline)
+    /// <summary>
+    /// Samples the 3x3 area around a sensor point and returns a combined score
+    /// based on pheromone strength and distance-to-goal.
+    /// Score = strength * 0.35 + (1/(1+distance)) * 0.65
+    /// When wantDecreasing is true, lower distances score higher (going toward goal).
+    /// When false (exploring), we just use strength — distance doesn't matter.
+    /// </summary>
+    private static float SampleCell(Ant ant, World world, Colony colony, PheromoneChannel channel, float angle, float distance, float densityPenalty, bool wantDecreasing)
     {
         float cos = (float)Math.Cos(angle);
         float sin = (float)Math.Sin(angle);
@@ -129,7 +163,9 @@ public static class SensorSystem
             return 0f;
         }
 
-        float best = 0f;
+        float bestScore = 0f;
+        PheromoneGrid grid = colony.PheromoneGrid;
+
         for (int dy = -SampleRadius; dy <= SampleRadius; dy++)
         {
             for (int dx = -SampleRadius; dx <= SampleRadius; dx++)
@@ -144,23 +180,39 @@ public static class SensorSystem
                 {
                     continue;
                 }
-                float v = colony.PheromoneGrid.Get(channel, sx, sy);
-                if (v > best)
+
+                float strength = grid.Get(channel, sx, sy);
+                if (strength < DetectionThreshold)
                 {
-                    best = v;
+                    continue;
+                }
+
+                float score;
+                if (wantDecreasing)
+                {
+                    float goalDist = grid.GetDistance(channel, sx, sy);
+                    float distScore = 1f / (1f + goalDist);
+                    score = strength * StrengthWeight + distScore * DistanceWeight;
+                }
+                else
+                {
+                    score = strength;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
                 }
             }
         }
 
         int density = world.GetAntDensity(cx, cy);
-        best -= density * densityPenalty;
+        bestScore -= density * densityPenalty;
 
-        best -= baseline;
-
-        return best;
+        return bestScore;
     }
 
-    private static void RunStochasticSweep(Ant ant, World world, Colony colony, PheromoneChannel channel, AntRole role, float baseline, out float bestValue, out float bestAngle)
+    private static void RunStochasticSweep(Ant ant, World world, Colony colony, PheromoneChannel channel, AntRole role, bool wantDecreasing, out float bestValue, out float bestAngle)
     {
         bestValue = float.MinValue;
         bestAngle = ant.Heading;
@@ -170,7 +222,7 @@ public static class SensorSystem
             float offset = (world.NextRandomFloat() - 0.5f) * 2f * StochasticAngleRange;
             float dist = StochasticMinDistance + world.NextRandomFloat() * (StochasticMaxDistance - StochasticMinDistance);
             float angle = ant.Heading + offset;
-            float value = SampleCell(ant, world, colony, channel, angle, dist, role.DensityPenalty, baseline);
+            float value = SampleCell(ant, world, colony, channel, angle, dist, role.DensityPenalty, wantDecreasing);
 
             if (value > bestValue)
             {

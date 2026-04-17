@@ -22,7 +22,7 @@ public class ScoutRole : AntRole
         SensorInterval = 0.20f;
         AutonomyMax = 300f;
         ExplorationRate = 0.03f;
-        GradientThreshold = 0.005f;
+
         DensityPenalty = 0.015f;
         ActiveDegradeChance = 0.05f;
         ActiveDegradeFactor = 0.99f;
@@ -95,6 +95,7 @@ public class ScoutRole : AntRole
         if (world.TakeFood(cx, cy))
         {
             ant.CarryingFood = 1;
+            ant.DistanceFromFoodSource = 0f;
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
             ant.Role = ForagerRole.Instance;
@@ -112,6 +113,7 @@ public class ScoutRole : AntRole
         if (enemyColony.StealFood())
         {
             ant.CarryingFood = 1;
+            ant.DistanceFromFoodSource = 0f;
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
             ant.Role = ForagerRole.Instance;

@@ -51,6 +51,9 @@ public static class MovementSystem
         ant.Y = newY;
         ant.StridePhase += speed * StridePhasePerCell;
 
+        ant.DistanceFromFoodSource += speed;
+        ant.DistanceFromEnemy += speed;
+
         if (newCX != oldCX || newCY != oldCY)
         {
             world.DecrementDensity(oldCX, oldCY);

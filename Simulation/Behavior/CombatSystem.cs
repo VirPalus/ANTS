@@ -36,6 +36,7 @@ public static class CombatSystem
 
         ant.EngagementTimer = EngagementHoldSeconds;
         ant.LastCombatTargetColonyId = state.ClosestEnemyColony!.Id;
+        ant.DistanceFromEnemy = 0f;
         Ant closestEnemy = state.ClosestEnemy;
         Colony closestColony = state.ClosestEnemyColony;
 
@@ -62,7 +63,7 @@ public static class CombatSystem
             ant.LungeDirY = (float)Math.Sin(ant.Heading);
         }
         ant.LungeTimer = LungeDuration;
-        colony.PheromoneGrid.DepositEnemy(closestColony.Id, (int)ant.X, (int)ant.Y, 1.0f);
+        colony.PheromoneGrid.DepositEnemy(closestColony.Id, (int)ant.X, (int)ant.Y, 1.0f, 0f);
     }
 
     private static void DamageTarget(Ant target, Colony targetColony, World world)

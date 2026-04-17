@@ -19,7 +19,7 @@ public class DefenderRole : AntRole
         SensorInterval = 0.25f;
         AutonomyMax = 400f;
         ExplorationRate = 0.12f;
-        GradientThreshold = 0.015f;
+
         DensityPenalty = 0.060f;
         ActiveDegradeChance = 0.10f;
         ActiveDegradeFactor = 0.98f;
