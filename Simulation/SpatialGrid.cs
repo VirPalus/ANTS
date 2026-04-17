@@ -14,19 +14,15 @@ public class SpatialGrid
     private readonly int _gridH;
     private readonly int _bucketCount;
 
-    // Flat bucket storage: _bucketStart[b] is the index into _entries
-    // where bucket b begins, _bucketCount[b] is how many entries it has.
     private int[] _bucketStart;
     private int[] _bucketCountArr;
 
-    // Packed entry arrays — parallel arrays for cache-friendliness.
     private float[] _entryX;
     private float[] _entryY;
     private int[] _entryColonyId;
     private Ant[] _entryAnt;
     private int _entryCount;
 
-    // Temporary count array reused each Rebuild to avoid allocation.
     private int[] _tempCounts;
 
     public SpatialGrid(int worldWidth, int worldHeight)
@@ -39,7 +35,6 @@ public class SpatialGrid
         _bucketCountArr = new int[_bucketCount];
         _tempCounts = new int[_bucketCount];
 
-        // Pre-allocate for a reasonable starting capacity.
         int initialCap = 512;
         _entryX = new float[initialCap];
         _entryY = new float[initialCap];
@@ -54,7 +49,6 @@ public class SpatialGrid
     /// </summary>
     public void Rebuild(IReadOnlyList<Colony> colonies)
     {
-        // Pass 1: count total ants and per-bucket counts.
         Array.Clear(_tempCounts, 0, _bucketCount);
 
         int totalAnts = 0;
@@ -81,7 +75,6 @@ public class SpatialGrid
             }
         }
 
-        // Grow entry arrays if needed.
         if (totalAnts > _entryX.Length)
         {
             int newCap = totalAnts * 2;
@@ -92,17 +85,15 @@ public class SpatialGrid
         }
         _entryCount = totalAnts;
 
-        // Pass 2: prefix sum to compute bucket starts.
         int offset = 0;
         for (int b = 0; b < _bucketCount; b++)
         {
             _bucketStart[b] = offset;
             _bucketCountArr[b] = _tempCounts[b];
             offset += _tempCounts[b];
-            _tempCounts[b] = 0; // Reset for use as write cursor in pass 3.
+            _tempCounts[b] = 0;
         }
 
-        // Pass 3: fill entries into their buckets.
         for (int c = 0; c < colonyCount; c++)
         {
             Colony colony = colonies[c];
@@ -211,7 +202,6 @@ public class SpatialGrid
                     {
                         continue;
                     }
-                    // Ant may have died during this tick.
                     if (_entryAnt[i].IsDead)
                     {
                         continue;
@@ -246,28 +236,22 @@ public class SpatialGrid
 /// </summary>
 public struct QueryState
 {
-    // Vision accumulation
     public float SumX;
     public float SumY;
     public int ClosestEnemyColonyId;
     public float ClosestDistSq;
 
-    // Combat: closest enemy tracking
     public Ant? ClosestEnemy;
     public Colony? ClosestEnemyColony;
     public float ClosestCombatDistSq;
 
-    // Reference to colonies list for combat (to look up Colony from colonyId)
     public IReadOnlyList<Colony>? Colonies;
 
-    // World reference for line-of-sight wall checks.
     public World? World;
 
-    // Query center position (needed by LOS checks in callbacks).
     public float QueryCenterX;
     public float QueryCenterY;
 
-    // Vision cone parameters (for cone-limited scans).
     public float CosHeading;
     public float SinHeading;
     public float CosHalfAngle;

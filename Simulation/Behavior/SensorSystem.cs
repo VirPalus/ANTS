@@ -5,22 +5,18 @@ public static class SensorSystem
     private const int StochasticSampleCount = 12;
     private const float StochasticAngleRange = 1.2f;
     private const float StochasticMinDistance = 2.0f;
-    private const float StochasticMaxDistance = 10.0f; // was 25 — too far, caused ants to chase distant signals
+    private const float StochasticMaxDistance = 10.0f;
     private const float ForwardBias = 1.35f;
     private const float TurnMargin = 1.15f;
     private const float WanderNoiseRange = 0.8f;
-    private const int SampleRadius = 1; // 3x3 area sampling for reliable trail detection
-    private const float LostHomingWeight = 0.15f; // gentle nest nudge ONLY when trail is completely lost
-    // Wall avoidance moved to VisionSystem — ants now see walls in their
-    // vision cone and steer away. SensorSystem is purely for pheromone tracking.
+    private const int SampleRadius = 1;
+    private const float LostHomingWeight = 0.15f;
 
     public static void Sense(Ant ant, Colony colony, World world)
     {
         AntRole role = ant.Role;
         PheromoneChannel followChannel = role.GetFollowChannel(ant);
 
-        // Returning ants carrying food should never randomly explore —
-        // they need to follow their HomeTrail back reliably.
         bool suppressExploration = ant.CarryingFood > 0 && ant.Goal.Type == GoalType.ReturnHome;
         if (!suppressExploration)
         {
@@ -33,12 +29,6 @@ public static class SensorSystem
             }
         }
 
-        // Get the pheromone at the ant's CURRENT position. By subtracting
-        // this baseline from sampled values, we turn absolute pheromone
-        // into a GRADIENT. Positive = going uphill (toward the trail's
-        // source), negative = going downhill (wrong direction on the
-        // trail). This prevents ants from following trails backwards —
-        // HomeTrail increases toward nest, FoodTrail increases toward food.
         float baseline = colony.PheromoneGrid.Get(followChannel, (int)ant.X, (int)ant.Y);
 
         float centerAngle = ant.Heading;
@@ -74,10 +64,6 @@ public static class SensorSystem
         float wanderNoise = (world.NextRandomFloat() - 0.5f) * WanderNoiseRange;
         float fallbackAngle = ant.Heading + wanderNoise;
 
-        // Weak nest nudge ONLY when truly lost (no trail detected at all)
-        // and carrying food. This is NOT a constant bias — it only fires
-        // when the ant has zero pheromone guidance. Without this, lost ants
-        // wander forever and starve. With trail present, this never runs.
         if (ant.CarryingFood > 0 && ant.Goal.Type == GoalType.ReturnHome)
         {
             float dxNest = (colony.NestX + 0.5f) - ant.X;
@@ -143,10 +129,6 @@ public static class SensorSystem
             return 0f;
         }
 
-        // Sample a 3x3 area around the target point and take the max
-        // pheromone value. Single-cell sampling missed trails that were
-        // just 1 cell off from the sample point. Area sampling makes
-        // trail detection far more reliable.
         float best = 0f;
         for (int dy = -SampleRadius; dy <= SampleRadius; dy++)
         {
@@ -173,13 +155,6 @@ public static class SensorSystem
         int density = world.GetAntDensity(cx, cy);
         best -= density * densityPenalty;
 
-        // GRADIENT: subtract the pheromone at the ant's current position.
-        // This turns the value into a gradient:
-        //   positive = pheromone is STRONGER ahead (going uphill → correct)
-        //   negative = pheromone is WEAKER ahead (going downhill → wrong way)
-        // HomeTrail is strongest near nest → uphill = toward nest.
-        // FoodTrail is strongest near food → uphill = toward food.
-        // This prevents ants from following a trail in the wrong direction.
         best -= baseline;
 
         return best;

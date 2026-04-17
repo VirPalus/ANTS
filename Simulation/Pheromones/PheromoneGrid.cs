@@ -16,12 +16,9 @@ public class PheromoneGrid
     private readonly bool[,] _permanentHome;
     private readonly Dictionary<int, float[,]> _enemyTrails;
 
-    // Sparse decay: track which cells have non-zero pheromone per channel.
-    // Packed index = x * _height + y. _activeSet avoids duplicate inserts.
     private readonly List<int>[] _activeCells;
     private readonly bool[][,] _activeSet;
 
-    // Sparse tracking for enemy trails: one list + set per target colony.
     private readonly Dictionary<int, List<int>> _enemyActiveCells;
     private readonly Dictionary<int, bool[,]> _enemyActiveSet;
 
@@ -57,7 +54,6 @@ public class PheromoneGrid
         _permanentHome[x, y] = true;
         int c = (int)PheromoneChannel.HomeTrail;
         _intensity[c][x, y] = PermanentHomeIntensity;
-        // Permanent home cells are always active but never removed.
         if (!_activeSet[c][x, y])
         {
             _activeSet[c][x, y] = true;
@@ -83,7 +79,6 @@ public class PheromoneGrid
         float[,] grid = _intensity[c];
         float existing = grid[x, y];
 
-        // Track this cell as active if it wasn't already.
         if (!_activeSet[c][x, y])
         {
             _activeSet[c][x, y] = true;
@@ -125,7 +120,6 @@ public class PheromoneGrid
             _enemyActiveSet[targetColonyId] = new bool[_width, _height];
         }
 
-        // Track active cell.
         bool[,] activeSet = _enemyActiveSet[targetColonyId];
         if (!activeSet[x, y])
         {
@@ -231,7 +225,6 @@ public class PheromoneGrid
             float v = grid[x, y];
             if (v <= 0f)
             {
-                // Already zero — remove from active list.
                 activeSet[x, y] = false;
                 continue;
             }
@@ -250,7 +243,6 @@ public class PheromoneGrid
             writeIdx++;
         }
 
-        // Trim the list to only surviving entries.
         if (writeIdx < count)
         {
             active.RemoveRange(writeIdx, count - writeIdx);

@@ -82,7 +82,7 @@ public partial class Engine : Form
     private SKPaint _textPaint = null!;
     private SKPaint _antPaint = null!;
     private SKPicture _gridPicture = null!;
-    private SKPicture? _gridLinesPicture; 
+    private SKPicture? _gridLinesPicture;
     private SKPicture _hudPicture = null!;
     private SKPicture _statsPicture = null!;
     private SKPicture _buttonsPicture = null!;
@@ -314,9 +314,6 @@ public partial class Engine : Form
                 }
                 catch
                 {
-                    // Malformed PNG or unreadable file -- fall through
-                    // to the next candidate rather than crashing the
-                    // whole engine on a bad map.
                 }
             }
         }
@@ -1839,7 +1836,7 @@ public partial class Engine : Form
 
     private void DrawVisionCone(SKCanvas canvas, float cx, float cy, float heading, float halfAngle, float radius, SKColor colonyColor)
     {
-        
+
         float startAngle = heading - halfAngle;
         float endAngle = heading + halfAngle;
         const int arcSegments = 20;
@@ -1913,7 +1910,7 @@ public partial class Engine : Form
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Engaged", ant.EngagementTimer > 0 ? $"{ant.EngagementTimer:F2}s" : "-");
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Age", $"{ant.Age:F0}s");
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Autonomy", $"{ant.InternalClock:F0} / {ant.Role.AutonomyMax:F0}");
-        
+
         y += 6f;
         textPaint.TextSize = 10f;
         textPaint.Color = new SKColor(255, 255, 255, 120);

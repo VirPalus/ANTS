@@ -8,8 +8,8 @@ public static class CombatSystem
     private const float AttackCooldownSeconds = 0.3f;
     private const float EngagementHoldSeconds = 0.4f;
     private const int AttackDamage = 1;
-    public const float LungeDuration = 0.15f;  // total lunge animation time
-    public const float LungeDistance = 0.5f;    // max offset in cells
+    public const float LungeDuration = 0.15f;
+    public const float LungeDistance = 0.5f;
 
     public static void Tick(Ant ant, Colony colony, World world)
     {
@@ -18,7 +18,6 @@ public static class CombatSystem
             return;
         }
 
-        // Use spatial hash grid for O(nearby) enemy lookup.
         QueryState state = new QueryState();
         state.ClosestEnemy = null;
         state.ClosestEnemyColony = null;
@@ -49,7 +48,6 @@ public static class CombatSystem
         ant.AttackCooldown = AttackCooldownSeconds;
         ant.InternalClock = 0f;
 
-        // Start lunge animation toward the target.
         float ldx = closestEnemy.X - ant.X;
         float ldy = closestEnemy.Y - ant.Y;
         float ldist = (float)Math.Sqrt(ldx * ldx + ldy * ldy);
@@ -87,12 +85,10 @@ public static class CombatSystem
 
     private static void OnCombatFindClosest(ref QueryState state, Ant target, int colonyId, float dx, float dy, float distSq)
     {
-        // Ant may have died during this tick (grid is built at tick start).
         if (target.IsDead)
         {
             return;
         }
-        // Wall occlusion: can't attack through walls.
         if (!state.World!.HasLineOfSight(state.QueryCenterX, state.QueryCenterY, target.X, target.Y))
         {
             return;
@@ -101,7 +97,6 @@ public static class CombatSystem
         {
             state.ClosestCombatDistSq = distSq;
             state.ClosestEnemy = target;
-            // Resolve Colony from colonyId via the colonies list.
             IReadOnlyList<Colony> colonies = state.Colonies!;
             int count = colonies.Count;
             for (int i = 0; i < count; i++)

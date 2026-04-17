@@ -4,7 +4,7 @@ public static class MovementSystem
 {
     private const float BounceJitter = 0.9f;
     private const float StridePhasePerCell = 4f;
-    private const float DepositSuppressAfterBounce = 0.8f; // seconds of no pheromone after wall hit
+    private const float DepositSuppressAfterBounce = 0.8f;
 
     public static void Move(Ant ant, Colony colony, World world, float dt)
     {
@@ -30,9 +30,6 @@ public static class MovementSystem
             return;
         }
 
-        // Hard-block walls: ants cannot occupy a wall cell. Only bother
-        // checking when we'd actually cross into a new cell — within the
-        // same cell we already know it isn't a wall (we're standing on it).
         if ((newCX != oldCX || newCY != oldCY) && world.IsWall(newCX, newCY))
         {
             BounceOff(ant, colony, world);
@@ -67,10 +64,6 @@ public static class MovementSystem
         ant.Heading += (float)Math.PI + (r - 0.5f) * BounceJitter;
         ant.CachedSteerAngle = ant.Heading;
 
-        // Suppress pheromone deposits briefly after bouncing off a wall.
-        // This prevents creating false trail segments at wall edges that
-        // would mislead other ants. Reference: Softology's ant sim uses
-        // ~100 steps of no-deposit after wall collision.
         ant.DepositCooldown = DepositSuppressAfterBounce;
     }
 }

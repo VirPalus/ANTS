@@ -74,10 +74,6 @@ public class World
         ComputeWallDistance();
     }
 
-    // Multi-source 4-neighbor BFS: distance from every cell to the nearest
-    // blocked tile. "Blocked" means a Wall cell OR the world boundary.
-    // Wall cells themselves and the outer border row/column are the sources
-    // (distance 0). Open cells get the step count to the nearest source.
     private void ComputeWallDistance()
     {
         Queue<Point> queue = new Queue<Point>(Width * 4);
@@ -98,9 +94,6 @@ public class World
             }
         }
 
-        // Outer border row/columns are also sources so the BFS matches the
-        // "stay away from edges" behaviour callers expect. Skip cells that
-        // are already wall-sources to keep the queue tidy.
         for (int x = 0; x < Width; x++)
         {
             if (_wallDistance[x, 0] != 0)
@@ -156,18 +149,11 @@ public class World
         }
     }
 
-    // Call after bulk-placing walls (e.g. finishing a map load) so the
-    // cached wall-distance reflects the new layout. Individual SetCell
-    // calls do not auto-recompute; bulk-edit then flip once.
     public void RecomputeWallDistance()
     {
         ComputeWallDistance();
     }
 
-    // Bulk-apply the walls + food from a parsed map. Colonies are NOT
-    // added here -- Engine iterates ColonySeeds separately so color/id
-    // assignment stays in one place. Wall-distance is recomputed once
-    // at the end, which is cheap relative to touching every cell.
     public void ApplyMapLayout(MapDefinition def)
     {
         if (def.Width != Width || def.Height != Height)
@@ -192,8 +178,6 @@ public class World
             FoodSeed f = def.FoodCells[i];
             if (f.X < 0 || f.X >= Width) continue;
             if (f.Y < 0 || f.Y >= Height) continue;
-            // Food-on-wall conflicts (should be rare: the map loader
-            // guards against them too) fall out as "wall wins".
             if (_cells[f.X, f.Y] == CellType.Wall) continue;
 
             _cells[f.X, f.Y] = CellType.Food;
@@ -244,21 +228,17 @@ public class World
         int endCellX = (int)x1;
         int endCellY = (int)y1;
 
-        // Already in the same cell — trivially visible.
         if (cellX == endCellX && cellY == endCellY)
         {
             return true;
         }
 
-        // Direction of stepping (+1 or -1).
         int stepX = dx > 0 ? 1 : -1;
         int stepY = dy > 0 ? 1 : -1;
 
-        // Distance along the ray to cross one full cell in X or Y.
         float tDeltaX = dx != 0 ? Math.Abs(1f / dx) : float.MaxValue;
         float tDeltaY = dy != 0 ? Math.Abs(1f / dy) : float.MaxValue;
 
-        // Distance from start to the first X or Y cell boundary.
         float tMaxX;
         if (dx > 0)
         {
@@ -287,8 +267,6 @@ public class World
             tMaxY = float.MaxValue;
         }
 
-        // March through cells until we reach the target cell or hit a wall.
-        // Safety limit to avoid infinite loops on edge cases.
         int maxSteps = Math.Abs(endCellX - cellX) + Math.Abs(endCellY - cellY) + 2;
         for (int step = 0; step < maxSteps; step++)
         {
@@ -305,16 +283,16 @@ public class World
 
             if (cellX == endCellX && cellY == endCellY)
             {
-                return true; // Reached target without hitting a wall.
+                return true;
             }
 
             if (IsWall(cellX, cellY))
             {
-                return false; // Wall blocks line of sight.
+                return false;
             }
         }
 
-        return true; // Fallback: assume visible.
+        return true;
     }
 
     public void Update()
@@ -322,7 +300,6 @@ public class World
         float dt = TickSeconds;
         SimulationTime += dt;
 
-        // Rebuild spatial hash once per tick BEFORE any ant updates.
         SpatialGrid.Rebuild(_colonies);
 
         int colonyCount = _colonies.Count;
@@ -387,11 +364,6 @@ public class World
         }
     }
 
-    // The dead colony is no longer a threat to anyone. Every other colony
-    // drops exactly the EnemyTrail layer that was tagged with this colony's
-    // Id. Trails about other still-living enemies live in their own layers
-    // and are untouched. Also clear any ants still referencing this id as
-    // their detection/combat target so they don't deposit under a dead key.
     private void ForgetEnemyTrailAboutDeadColony(Colony deadColony)
     {
         int colonyCount = _colonies.Count;
@@ -658,7 +630,6 @@ public class World
         {
             return;
         }
-        // Can't place food on walls — ants can't reach those cells.
         if (type == CellType.Food && oldType == CellType.Wall)
         {
             return;

@@ -15,9 +15,6 @@ public static class DepositSystem
             return;
         }
 
-        // Safety: walls should never accept pheromones. Movement already
-        // forbids walking onto them, so this guard only fires in unusual
-        // cases (edge-of-cell rounding, runtime map edit, etc.).
         if (world.IsWall(cellX, cellY))
         {
             return;
@@ -33,9 +30,6 @@ public static class DepositSystem
 
         if (channel == PheromoneChannel.EnemyTrail)
         {
-            // Only reinforce the per-target layer for the enemy we're actually
-            // engaged with. No target -> no deposit (rather than bleeding into
-            // every layer or a shared channel).
             int targetId = ant.LastCombatTargetColonyId;
             if (targetId != 0)
             {

@@ -21,18 +21,11 @@ public class Ant
     public int CarryingFood;
     public int Health;
     public bool IsDead;
-    // 0 = no enemy detected this scan. Otherwise the Colony.Id whose ant/nest
-    // was seen. Carries the target id from VisionSystem through to
-    // EnemyDetectionSystem's per-target EnemyTrail deposit.
     public int DetectedEnemyColonyId;
-    // 0 = not engaged. Otherwise the Colony.Id of the enemy most recently
-    // attacked or reached. Used by DepositSystem to reinforce the correct
-    // per-target EnemyTrail layer while EngagementTimer is running.
     public int LastCombatTargetColonyId;
 
-    // Lunge animation: short forward thrust when attacking.
-    public float LungeTimer;     // counts down from LungeDuration to 0
-    public float LungeDirX;      // normalized direction toward target
+    public float LungeTimer;
+    public float LungeDirX;
     public float LungeDirY;
 
     public AntRole Role;

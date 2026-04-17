@@ -63,8 +63,6 @@ public class AttackerRole : AntRole
 
     public override bool ShouldDeposit(Ant ant)
     {
-        // Only lay enemy trail when actually engaged; otherwise attackers
-        // self-reinforce into single-file columns instead of wandering.
         return ant.EngagementTimer > 0f;
     }
 

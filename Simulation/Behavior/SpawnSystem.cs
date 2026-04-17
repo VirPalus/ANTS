@@ -60,12 +60,8 @@ public static class SpawnSystem
 
         float ratio = foodPerAnt / IdealFoodPerAnt;
 
-        // Base linear scale (keeps well-fed colonies above the floor).
         float scale = IntervalScaleFloor + IntervalScaleFloor * ratio;
 
-        // Surplus boost: when food-per-ant exceeds the ideal, the queen should
-        // ramp up spawning aggressively so the food-to-ants feedback loop
-        // stays tight (no more 10x surplus while the queen "sleeps").
         if (ratio > 1f)
         {
             float surplus = ratio - 1f;

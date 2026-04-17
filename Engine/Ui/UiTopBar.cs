@@ -2,15 +2,6 @@ namespace ANTS;
 using System.Collections.Generic;
 using SkiaSharp;
 
-// Top bar: a dark panel spanning the top of the window that holds the
-// pause / play button, the speed segmented-control, and (later) the
-// active map name. Owns layout, hit-testing and rendering as a unit
-// so Engine.cs doesn't have to thread state through a dozen fields.
-//
-// The top bar is stateless w.r.t. pause/speed -- it pulls from
-// callbacks the engine passes in, so there's no duplicate source of
-// truth. When the user clicks, the engine mutates its own state and
-// calls Layout again to refresh labels.
 public class UiTopBar
 {
     public const int BarHeight = 48;
@@ -20,14 +11,11 @@ public class UiTopBar
     public const int SpeedWidth = 220;
     public const int SpeedHeight = 32;
 
-    public SKRect Bounds;              // outer panel
-    public UiButton PauseButton;       // owns its own Draw
-    public UiSegmentedControl Speed;   // owns its own Draw
+    public SKRect Bounds;
+    public UiButton PauseButton;
+    public UiSegmentedControl Speed;
     public string MapName = "";
 
-    // Speed choices in the same order as the engine's SpeedChoices
-    // array. Kept as labels here so the segmented control stays
-    // visual-only.
     public double[] SpeedValues;
 
     private readonly Action _onPauseToggle;
@@ -43,7 +31,6 @@ public class UiTopBar
         _onPauseToggle = onPauseToggle;
         _onSpeedChange = onSpeedChange;
 
-        // Placeholders -- Layout() fills in real rects.
         Bounds = new SKRect(0, 0, 0, BarHeight);
         PauseButton = new UiButton(new Rectangle(0, 0, PauseButtonWidth, PauseButtonHeight), "Pause", onPauseToggle);
         PauseButton.IsActive = () => _pausedGetter();
@@ -58,7 +45,6 @@ public class UiTopBar
         Speed = new UiSegmentedControl(new SKRect(0, 0, SpeedWidth, SpeedHeight), labels, activeIdx);
     }
 
-    // Compute rects for current client size. Call on Resize.
     public void Layout(int clientWidth)
     {
         Bounds = new SKRect(0, 0, clientWidth, BarHeight);
@@ -66,18 +52,15 @@ public class UiTopBar
         int innerY = (BarHeight - PauseButtonHeight) / 2;
         int speedY = (BarHeight - SpeedHeight) / 2;
 
-        // Pause sits on the left.
         PauseButton = new UiButton(
             new Rectangle(OuterPadding, innerY, PauseButtonWidth, PauseButtonHeight),
             _pausedGetter() ? "Play" : "Pause",
             _onPauseToggle);
         PauseButton.IsActive = () => _pausedGetter();
 
-        // Speed control just right of pause.
         int speedX = OuterPadding + PauseButtonWidth + UiTopBar.OuterPadding;
         Speed.Bounds = new SKRect(speedX, speedY, speedX + SpeedWidth, speedY + SpeedHeight);
 
-        // Refresh active index from engine.
         Speed.ActiveIndex = 0;
         for (int i = 0; i < SpeedValues.Length; i++)
         {
@@ -89,8 +72,6 @@ public class UiTopBar
         }
     }
 
-    // Cache text positions for the Pause button (called by engine
-    // after Layout so it can use the engine's font metrics).
     public void CacheTextPositions(SKPaint textPaint, SKFontMetrics metrics, float textHeight)
     {
         float tw = textPaint.MeasureText(PauseButton.Label);
@@ -98,7 +79,6 @@ public class UiTopBar
         PauseButton.TextBaselineY = PauseButton.Bounds.Y + (PauseButton.Bounds.Height - textHeight) / 2f - metrics.Ascent;
     }
 
-    // Returns true if the click was consumed by a widget in the bar.
     public bool HandleClick(int x, int y)
     {
         if (!Bounds.Contains(x, y)) return false;
@@ -116,8 +96,6 @@ public class UiTopBar
             return true;
         }
 
-        // Click on the bar chrome but not on a widget -- still swallow
-        // so it doesn't bleed through to world-placement.
         return true;
     }
 
@@ -128,22 +106,17 @@ public class UiTopBar
 
     public void Draw(SKCanvas canvas, SKPaint fillPaint, SKPaint borderPaint, SKPaint textPaint)
     {
-        // --- bar background ---
         fillPaint.Color = UiTheme.BgPanel;
         canvas.DrawRect(Bounds, fillPaint);
 
-        // subtle bottom border
         borderPaint.Color = UiTheme.BorderSubtle;
         borderPaint.StrokeWidth = UiTheme.BorderThin;
         canvas.DrawLine(Bounds.Left, Bounds.Bottom - 0.5f, Bounds.Right, Bounds.Bottom - 0.5f, borderPaint);
 
-        // --- pause / play ---
         PauseButton.Draw(canvas, fillPaint, borderPaint, textPaint);
 
-        // --- speed selector ---
         Speed.Draw(canvas, fillPaint, borderPaint, textPaint);
 
-        // --- map name, centered ---
         if (!string.IsNullOrEmpty(MapName))
         {
             SKColor prev = textPaint.Color;
