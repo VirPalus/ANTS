@@ -13,7 +13,7 @@ public class AttackerRole : AntRole
     {
         MaxSpeed = 5.5f;
         TurnRate = 6.5f;
-        SensorDistance = 4.0f;
+        SensorDistance = 6.0f;
         SensorAngleRad = 0.78539816f;
         DepositInterval = 0.2f;
         SensorInterval = 0.20f;
@@ -25,7 +25,6 @@ public class AttackerRole : AntRole
         ActiveDegradeFactor = 0.98f;
         VisualScale = 2.0f;
         IsCombatant = true;
-        VisionRange = 14.0f;
         VisionInterval = 0.15f;
         SpawnFoodCost = 3;
         LeashRange = 0f;

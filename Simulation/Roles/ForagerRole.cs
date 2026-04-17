@@ -13,7 +13,7 @@ public class ForagerRole : AntRole
     {
         MaxSpeed = 5.5f;
         TurnRate = 6.5f;
-        SensorDistance = 4.0f;
+        SensorDistance = 4.5f;
         SensorAngleRad = 0.61086524f;
         DepositInterval = 0.15f;
         SensorInterval = 0.20f;
@@ -25,7 +25,6 @@ public class ForagerRole : AntRole
         ActiveDegradeFactor = 0.97f;
         VisualScale = 1.0f;
         IsCombatant = false;
-        VisionRange = 6.0f;
         VisionInterval = 0.20f;
         SpawnFoodCost = 1;
         LeashRange = 0f;

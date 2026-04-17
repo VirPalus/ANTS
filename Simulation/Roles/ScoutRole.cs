@@ -16,7 +16,7 @@ public class ScoutRole : AntRole
     {
         MaxSpeed = 5.5f;
         TurnRate = 7.0f;
-        SensorDistance = 2.5f;
+        SensorDistance = 3.0f;
         SensorAngleRad = 0.78539816f;
         DepositInterval = 0.15f;
         SensorInterval = 0.20f;
@@ -28,7 +28,6 @@ public class ScoutRole : AntRole
         ActiveDegradeFactor = 0.99f;
         VisualScale = 1.0f;
         IsCombatant = false;
-        VisionRange = 8.0f;
         VisionInterval = 0.20f;
         SpawnFoodCost = 1;
         LeashRange = 0f;

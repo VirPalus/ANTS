@@ -17,7 +17,8 @@ public abstract class AntRole
     public float VisualScale { get; protected set; }
     public bool IsCombatant { get; protected set; }
 
-    public float VisionRange { get; protected set; }
+    // Vision range is always 2x sensor distance — ants see twice as far as they smell.
+    public float VisionRange => SensorDistance * 2f;
     public float VisionInterval { get; protected set; }
     public int SpawnFoodCost { get; protected set; }
     public float LeashRange { get; protected set; }

@@ -13,7 +13,7 @@ public class DefenderRole : AntRole
     {
         MaxSpeed = 5.0f;
         TurnRate = 6.0f;
-        SensorDistance = 3.5f;
+        SensorDistance = 6.0f;
         SensorAngleRad = 0.78539816f;
         DepositInterval = 0.25f;
         SensorInterval = 0.25f;
@@ -25,7 +25,6 @@ public class DefenderRole : AntRole
         ActiveDegradeFactor = 0.98f;
         VisualScale = 2.0f;
         IsCombatant = true;
-        VisionRange = 12.0f;
         VisionInterval = 0.15f;
         SpawnFoodCost = 2;
         LeashRange = 0f;

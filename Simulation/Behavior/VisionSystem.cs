@@ -15,6 +15,10 @@ public static class VisionSystem
         }
 
         float rangeSq = role.VisionRange * role.VisionRange;
+        float halfAngle = role.SensorAngleRad;
+        float cosHalfAngle = (float)Math.Cos(halfAngle);
+        float cosHeading = (float)Math.Cos(ant.Heading);
+        float sinHeading = (float)Math.Sin(ant.Heading);
 
         float sumX = 0f;
         float sumY = 0f;
@@ -22,19 +26,22 @@ public static class VisionSystem
         float foodWeight = role.GetVisualAttraction(VisualTargetType.FoodCell, ant);
         if (foodWeight != 0f)
         {
-            AccumulateFood(ant, world, rangeSq, foodWeight, ref sumX, ref sumY);
+            AccumulateFood(ant, world, rangeSq, foodWeight, cosHeading, sinHeading, cosHalfAngle, ref sumX, ref sumY);
         }
 
         float enemyAntWeight = role.GetVisualAttraction(VisualTargetType.EnemyAnt, ant);
         float enemyNestWeight = role.GetVisualAttraction(VisualTargetType.EnemyNest, ant);
         if (enemyAntWeight != 0f || enemyNestWeight != 0f)
         {
-            int closestEnemyColonyId = AccumulateEnemies(ant, colony, world, rangeSq, enemyAntWeight, enemyNestWeight, ref sumX, ref sumY);
+            int closestEnemyColonyId = AccumulateEnemies(ant, colony, world, rangeSq, enemyAntWeight, enemyNestWeight, cosHeading, sinHeading, cosHalfAngle, ref sumX, ref sumY);
             if (closestEnemyColonyId != 0)
             {
                 ant.DetectedEnemyColonyId = closestEnemyColonyId;
             }
         }
+
+        // Wall avoidance: scan the vision cone for wall cells and push away.
+        AccumulateWalls(ant, world, role.VisionRange, cosHeading, sinHeading, cosHalfAngle, ref sumX, ref sumY);
 
         float magnitude = (float)Math.Sqrt(sumX * sumX + sumY * sumY);
         if (magnitude < 0.0001f)
@@ -52,7 +59,8 @@ public static class VisionSystem
         ant.VisionStrength = strength;
     }
 
-    private static void AccumulateFood(Ant ant, World world, float rangeSq, float weight, ref float sumX, ref float sumY)
+    private static void AccumulateFood(Ant ant, World world, float rangeSq, float weight,
+        float cosHeading, float sinHeading, float cosHalfAngle, ref float sumX, ref float sumY)
     {
         Point[] foodCells = world.FoodCells;
         int foodCount = world.FoodCount;
@@ -73,9 +81,73 @@ public static class VisionSystem
             {
                 continue;
             }
+            // Cone check: only see food within the forward vision pie.
+            float ndx = dx / dist;
+            float ndy = dy / dist;
+            float dot = ndx * cosHeading + ndy * sinHeading;
+            if (dot < cosHalfAngle)
+            {
+                continue;
+            }
             float falloff = weight / (1f + dist);
-            sumX += (dx / dist) * falloff;
-            sumY += (dy / dist) * falloff;
+            sumX += ndx * falloff;
+            sumY += ndy * falloff;
+        }
+    }
+
+    /// <summary>
+    /// Scans cells within the ant's forward vision cone for walls and map edges.
+    /// Each wall cell adds a repulsion vector (push AWAY from wall), with closer
+    /// walls pushing harder. This replaces the old 3x3 wall repulsion that was
+    /// in SensorSystem — now ants see walls at their full vision range.
+    /// </summary>
+    private static void AccumulateWalls(Ant ant, World world, float range,
+        float cosHeading, float sinHeading, float cosHalfAngle, ref float sumX, ref float sumY)
+    {
+        int scanRadius = (int)Math.Ceiling(range);
+        int cx = (int)ant.X;
+        int cy = (int)ant.Y;
+        float rangeSq = range * range;
+
+        const float WallRepulsionWeight = 3.0f;
+
+        for (int dy = -scanRadius; dy <= scanRadius; dy++)
+        {
+            for (int dx = -scanRadius; dx <= scanRadius; dx++)
+            {
+                if (dx == 0 && dy == 0) continue;
+
+                int wx = cx + dx;
+                int wy = cy + dy;
+
+                // Map edges count as walls too.
+                bool isWall = wx < 0 || wx >= world.Width || wy < 0 || wy >= world.Height;
+                if (!isWall)
+                {
+                    isWall = world.IsWall(wx, wy);
+                }
+                if (!isWall) continue;
+
+                // Cell center relative to ant.
+                float cellDx = (wx + 0.5f) - ant.X;
+                float cellDy = (wy + 0.5f) - ant.Y;
+                float distSq = cellDx * cellDx + cellDy * cellDy;
+                if (distSq > rangeSq) continue;
+
+                float dist = (float)Math.Sqrt(distSq);
+                if (dist < 0.001f) continue;
+
+                // Check if this cell is within the forward vision cone.
+                float ndx = cellDx / dist;
+                float ndy = cellDy / dist;
+                float dot = ndx * cosHeading + ndy * sinHeading;
+                if (dot < cosHalfAngle) continue;
+
+                // Push AWAY from wall — closer walls push much harder.
+                float falloff = WallRepulsionWeight / (1f + dist * dist);
+                sumX -= ndx * falloff;
+                sumY -= ndy * falloff;
+            }
         }
     }
 
@@ -83,7 +155,8 @@ public static class VisionSystem
     // or 0 if nothing was in range. The id is used downstream to tag the
     // EnemyTrail deposit so that clearing a dead enemy only removes its own
     // trail and never touches trails about other living enemies.
-    private static int AccumulateEnemies(Ant ant, Colony colony, World world, float rangeSq, float antWeight, float nestWeight, ref float sumX, ref float sumY)
+    private static int AccumulateEnemies(Ant ant, Colony colony, World world, float rangeSq, float antWeight, float nestWeight,
+        float cosHeading, float sinHeading, float cosHalfAngle, ref float sumX, ref float sumY)
     {
         int closestId = 0;
         float closestDistSq = float.MaxValue;
@@ -112,9 +185,15 @@ public static class VisionSystem
                     float nDist = (float)Math.Sqrt(nDistSq);
                     if (nDist > 0.001f && world.HasLineOfSight(ant.X, ant.Y, nestCenterX, nestCenterY))
                     {
+                        // Cone check: only see nests within the forward vision pie.
+                        float nnx = ndx / nDist;
+                        float nny = ndy / nDist;
+                        float dot = nnx * cosHeading + nny * sinHeading;
+                        if (dot < cosHalfAngle) continue;
+
                         float falloff = nestWeight / (1f + nDist);
-                        sumX += (ndx / nDist) * falloff;
-                        sumY += (ndy / nDist) * falloff;
+                        sumX += nnx * falloff;
+                        sumY += nny * falloff;
                         if (nDistSq < closestDistSq)
                         {
                             closestDistSq = nDistSq;
@@ -137,6 +216,10 @@ public static class VisionSystem
             state.World = world;
             state.QueryCenterX = ant.X;
             state.QueryCenterY = ant.Y;
+            // Pack cone data into unused state fields for the callback.
+            state.CosHeading = cosHeading;
+            state.SinHeading = sinHeading;
+            state.CosHalfAngle = cosHalfAngle;
 
             world.SpatialGrid.QueryRadius(ant.X, ant.Y, range, colony.Id, VisionEnemyAntCallback, ref state);
 
@@ -152,29 +235,27 @@ public static class VisionSystem
 
     private static void OnVisionEnemyAnt(ref QueryState state, Ant target, int colonyId, float dx, float dy, float distSq)
     {
-        // Ant may have died during this tick (grid is built at tick start).
-        if (target.IsDead)
-        {
-            return;
-        }
+        if (target.IsDead) return;
+
         float dist = (float)Math.Sqrt(distSq);
-        if (dist < 0.001f)
-        {
-            return;
-        }
+        if (dist < 0.001f) return;
+
+        // Cone check: only see enemies within the forward vision pie.
+        float ndx = dx / dist;
+        float ndy = dy / dist;
+        float dot = ndx * state.CosHeading + ndy * state.SinHeading;
+        if (dot < state.CosHalfAngle) return;
+
         // Wall occlusion: can't see through walls.
         if (!state.World!.HasLineOfSight(state.QueryCenterX, state.QueryCenterY, target.X, target.Y))
         {
             return;
         }
-        // antWeight is baked into the call site via the accumulated state;
-        // we use a fixed weight here matching the original pattern.
-        // The weight comes from role.GetVisualAttraction which varies per role.
-        // We store it in ClosestCombatDistSq as a temporary slot.
+
         float weight = state.ClosestCombatDistSq; // repurposed as antWeight
         float falloff = weight / (1f + dist);
-        state.SumX += (dx / dist) * falloff;
-        state.SumY += (dy / dist) * falloff;
+        state.SumX += ndx * falloff;
+        state.SumY += ndy * falloff;
         if (distSq < state.ClosestDistSq)
         {
             state.ClosestDistSq = distSq;

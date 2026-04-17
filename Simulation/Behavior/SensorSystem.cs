@@ -8,20 +8,11 @@ public static class SensorSystem
     private const float StochasticMaxDistance = 10.0f; // was 25 — too far, caused ants to chase distant signals
     private const float ForwardBias = 1.35f;
     private const float TurnMargin = 1.15f;
-    private const float WallPenalty = 0.5f;
     private const float WanderNoiseRange = 0.8f;
     private const int SampleRadius = 1; // 3x3 area sampling for reliable trail detection
     private const float LostHomingWeight = 0.15f; // gentle nest nudge ONLY when trail is completely lost
-    private const float WallRepulsionStrength = 0.4f; // how strongly nearby walls push the ant away
-    // HomingBias REMOVED — every reference implementation relies purely
-    // on pheromone trails to guide returning ants home. A nest-direction
-    // bias overrode the sensor and pushed ants through walls.
-    // DangerTrail REMOVED — it was a workaround for HomingBias pushing
-    // ants into walls. Without HomingBias, ants follow pheromone trails
-    // and naturally avoid walls via -WallPenalty.
-    // wallFactor REMOVED — it was zeroing out pheromone values near walls,
-    // making trails along walls invisible. Wall cells already return
-    // -WallPenalty, which is sufficient to steer ants away.
+    // Wall avoidance moved to VisionSystem — ants now see walls in their
+    // vision cone and steer away. SensorSystem is purely for pheromone tracking.
 
     public static void Sense(Ant ant, Colony colony, World world)
     {
@@ -37,7 +28,7 @@ public static class SensorSystem
             if (explorationRoll < role.ExplorationRate)
             {
                 float randomTurn = (world.NextRandomFloat() - 0.5f) * (float)Math.PI;
-                ant.CachedSteerAngle = ApplyWallRepulsion(ant, world, ant.Heading + randomTurn);
+                ant.CachedSteerAngle = ant.Heading + randomTurn;
                 return;
             }
         }
@@ -76,7 +67,7 @@ public static class SensorSystem
 
         if (chosenValue > role.GradientThreshold)
         {
-            ant.CachedSteerAngle = ApplyWallRepulsion(ant, world, chosenAngle);
+            ant.CachedSteerAngle = chosenAngle;
             return;
         }
 
@@ -102,57 +93,8 @@ public static class SensorSystem
             fallbackAngle = (float)Math.Atan2(bs, bc);
         }
 
-        ant.CachedSteerAngle = ApplyWallRepulsion(ant, world, fallbackAngle);
+        ant.CachedSteerAngle = fallbackAngle;
         ant.Role.OnLostTrail(ant, colony, world);
-    }
-
-    /// <summary>
-    /// Scans the 3x3 neighborhood around the ant's cell for walls.
-    /// For each wall found, computes a repulsion vector pointing AWAY
-    /// from that wall. The sum is blended into the steer angle so the
-    /// ant gently steers away before hitting the wall.
-    /// </summary>
-    private static float ApplyWallRepulsion(Ant ant, World world, float steerAngle)
-    {
-        int cx = (int)ant.X;
-        int cy = (int)ant.Y;
-
-        float repelX = 0f;
-        float repelY = 0f;
-
-        for (int dy = -1; dy <= 1; dy++)
-        {
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                if (dx == 0 && dy == 0) continue;
-                int nx = cx + dx;
-                int ny = cy + dy;
-                if (nx < 0 || nx >= world.Width || ny < 0 || ny >= world.Height ||
-                    world.IsWall(nx, ny))
-                {
-                    // Wall or edge found — push AWAY from it.
-                    // Diagonal walls push less (1/√2) naturally via dx/dy.
-                    repelX -= dx;
-                    repelY -= dy;
-                }
-            }
-        }
-
-        // No nearby walls → return angle unchanged.
-        if (repelX == 0f && repelY == 0f)
-        {
-            return steerAngle;
-        }
-
-        float repelAngle = (float)Math.Atan2(repelY, repelX);
-
-        float sc = (float)Math.Cos(steerAngle);
-        float ss = (float)Math.Sin(steerAngle);
-        float rc = (float)Math.Cos(repelAngle);
-        float rs = (float)Math.Sin(repelAngle);
-        float bc = sc * (1f - WallRepulsionStrength) + rc * WallRepulsionStrength;
-        float bs = ss * (1f - WallRepulsionStrength) + rs * WallRepulsionStrength;
-        return (float)Math.Atan2(bs, bc);
     }
 
     private static void PickFixedBest(float center, float left, float right, float centerAngle, float leftAngle, float rightAngle, out float bestValue, out float bestAngle)
@@ -188,17 +130,17 @@ public static class SensorSystem
 
         if (cx < 0 || cx >= world.Width || cy < 0 || cy >= world.Height)
         {
-            return -WallPenalty;
+            return 0f;
         }
 
         if (world.IsWall(cx, cy))
         {
-            return -WallPenalty;
+            return 0f;
         }
 
         if (world.IsEnemyNest(cx, cy, colony.Id))
         {
-            return -WallPenalty;
+            return 0f;
         }
 
         // Sample a 3x3 area around the target point and take the max

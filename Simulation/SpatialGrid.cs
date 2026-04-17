@@ -266,4 +266,9 @@ public struct QueryState
     // Query center position (needed by LOS checks in callbacks).
     public float QueryCenterX;
     public float QueryCenterY;
+
+    // Vision cone parameters (for cone-limited scans).
+    public float CosHeading;
+    public float SinHeading;
+    public float CosHalfAngle;
 }
