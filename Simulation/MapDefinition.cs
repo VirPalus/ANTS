@@ -27,9 +27,9 @@ public class MapDefinition
 
 public struct FoodSeed
 {
-    public int X;
-    public int Y;
-    public float Amount;
+    public int X { get; set; }
+    public int Y { get; set; }
+    public float Amount { get; set; }
 
     public FoodSeed(int x, int y, float amount)
     {
@@ -41,9 +41,9 @@ public struct FoodSeed
 
 public struct ColonySeed
 {
-    public int X;
-    public int Y;
-    public Color Color;
+    public int X { get; set; }
+    public int Y { get; set; }
+    public Color Color { get; set; }
 
     public ColonySeed(int x, int y, Color color)
     {
