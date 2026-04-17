@@ -19,7 +19,7 @@
          can find them at runtime without reaching back into the
          project tree. -->
     <None Include="Maps\*.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 

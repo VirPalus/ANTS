@@ -150,6 +150,14 @@ public static class MapLoader
             return PixelClass.Wall;
         }
 
+        // Mid-gray border pixels (≈133,133,133) are walls too.
+        // They form the 1-cell outer border in the PNG and merge
+        // seamlessly with interior walls at render time.
+        if (s < 0.05f && v >= 0.4f && v <= 0.65f)
+        {
+            return PixelClass.Wall;
+        }
+
         // Low saturation -> empty (grey, white, faint tints).
         if (s < 0.28f)
         {

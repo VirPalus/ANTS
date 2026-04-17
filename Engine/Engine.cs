@@ -13,7 +13,7 @@ public partial class Engine : Form
     // This is *only* a rendering constant. The simulation treats a
     // cell as its atomic unit (see Ant.X / Ant.Y, PheromoneGrid, etc.).
     private const int CellSize = 16;
-    private const int BorderThickness = 12;
+    private const int BorderThickness = 16;
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
@@ -437,8 +437,24 @@ public partial class Engine : Form
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
 
-        // 1. World background fill — warm dark gray, distinct from the
-        //    root background so the play area reads as a "surface".
+        // 0. Filled rounded rect in WallColor — the unified base for
+        //    border + walls. Walls (same color) merge on top. Only the
+        //    4 rounded corners peek through where no wall cell covers them.
+        using (SKPaint basePaint = new SKPaint())
+        {
+            basePaint.Style = SKPaintStyle.Fill;
+            basePaint.IsAntialias = true;
+            basePaint.Color = UiTheme.WallColor;
+
+            const float cornerRadius = 16f;
+            SKRect baseRect = new SKRect(
+                -BorderThickness, -BorderThickness,
+                gridWidth + BorderThickness, gridHeight + BorderThickness);
+            using SKRoundRect baseRr = new SKRoundRect(baseRect, cornerRadius, cornerRadius);
+            recordingCanvas.DrawRoundRect(baseRr, basePaint);
+        }
+
+        // 1. World background fill.
         using (SKPaint worldBgPaint = new SKPaint())
         {
             worldBgPaint.Style = SKPaintStyle.Fill;
@@ -447,7 +463,7 @@ public partial class Engine : Form
             recordingCanvas.DrawRect(0, 0, gridWidth, gridHeight, worldBgPaint);
         }
 
-        // 2. Grid lines — recorded into a SEPARATE SKPicture so we can
+        // 3. Grid lines — recorded into a SEPARATE SKPicture so we can
         //    skip the replay when zoomed out (lines invisible anyway).
         //    All lines are batched into a single SKPath = 1 GPU draw call.
         {
@@ -488,9 +504,7 @@ public partial class Engine : Form
             gridLinesRecorder.Dispose();
         }
 
-        // 3. Walls — baked into the grid picture as a SINGLE batched
-        //    SKPath instead of 2352 individual DrawRect calls. This is
-        //    the #1 performance fix: one GPU draw call instead of 2352.
+        // 3. Walls — baked as a SINGLE batched SKPath (1 GPU draw call).
         using (SKPaint wallPaint = new SKPaint())
         {
             wallPaint.Style = SKPaintStyle.Fill;
@@ -518,21 +532,6 @@ public partial class Engine : Form
                     recordingCanvas.DrawPath(wallPath, wallPaint);
                 }
             }
-        }
-
-        // 4. Single thick rounded border — Pezzza style. SKRoundRect is
-        //    fine here because this only runs once per map load, not per-frame.
-        using (SKPaint borderPaint = new SKPaint())
-        {
-            borderPaint.Style = SKPaintStyle.Stroke;
-            borderPaint.IsAntialias = true;
-            borderPaint.Color = UiTheme.WorldBorder;
-            borderPaint.StrokeWidth = BorderThickness;
-
-            float inset = BorderThickness / 2f;
-            SKRect borderRect = new SKRect(-inset, -inset, gridWidth + inset, gridHeight + inset);
-            using SKRoundRect borderRr = new SKRoundRect(borderRect, UiTheme.CornerMedium, UiTheme.CornerMedium);
-            recordingCanvas.DrawRoundRect(borderRr, borderPaint);
         }
 
         Replace(ref _gridPicture!, recorder.EndRecording());
