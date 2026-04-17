@@ -1928,4 +1928,11 @@ public partial class Engine : Form
     private static void DrawInfoLine(SKCanvas canvas, SKPaint textPaint, float x, float valX, ref float y, float lineH, string label, string value)
     {
         SKColor saved = textPaint.Color;
-        textPaint.Color = new SKColor(140, 
+        textPaint.Color = new SKColor(140, 140, 155);
+        canvas.DrawText(label, x, y, textPaint);
+        textPaint.Color = new SKColor(220, 220, 230);
+        canvas.DrawText(value, valX, y, textPaint);
+        textPaint.Color = saved;
+        y += lineH;
+    }
+}
