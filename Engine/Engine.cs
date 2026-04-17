@@ -9,59 +9,34 @@ using SkiaSharp.Views.Desktop;
 
 public partial class Engine : Form
 {
-    // Render-pixel size of one simulation cell at Zoom = 1.
-    // This is *only* a rendering constant. The simulation treats a
-    // cell as its atomic unit (see Ant.X / Ant.Y, PheromoneGrid, etc.).
     private const int CellSize = 16;
     private const int BorderThickness = 16;
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
-
-    // Default world size in cells, used when no map is loaded yet.
-    // A map loader (Phase 2) may replace the world with one sized
-    // from an input PNG; this default just keeps the engine runnable
-    // standalone.
-    private const int DefaultWorldWidthCells = 256;
-    private const int DefaultWorldHeightCells = 160;
-
-    // Pan speed for WASD, in screen pixels per second.
     private const float KeyboardPanPxPerSecond = 900f;
-
-    // Margin to keep around the world when fitting it on start, so
-    // the edges don't touch the window border.
     private const float FitMarginPx = 40f;
-
-    // Minimum on-screen area of the world that must stay visible when
-    // the camera is panned/clamped, so you can't lose the map.
-    private const float ClampKeepVisiblePx = 60f;
-
     private const float FoodGreenR = 34f / 255f;
     private const float FoodGreenG = 197f / 255f;
     private const float FoodGreenB = 94f / 255f;
 
     private const float PheromoneOverlayCutoff = 0.03f;
     private const float PheromoneOverlayMaxAlpha = 160f;
-
     private const int StatsPanelWidth = 260;
     private const int StatsCardHeight = 230;
     private const int StatsCardSpacing = 8;
     private const int StatsCardPadding = 10;
-    private const int StatsHeaderHeight = 10;
     private const int StatsGraphHeight = 44;
     private const int StatsLineHeight = 16;
     private const int StatsRoleBarHeight = 6;
     private const int StatsRoleBarWidth = 80;
-
     private static readonly SKColor ScoutBarColor = new SKColor(96, 165, 250);
     private static readonly SKColor ForagerBarColor = new SKColor(251, 191, 36);
     private static readonly SKColor DefenderBarColor = new SKColor(239, 68, 68);
     private static readonly SKColor AttackerBarColor = new SKColor(168, 85, 247);
     private static readonly SKColor DefenseBarColor = new SKColor(220, 38, 38);
     private static readonly SKColor OffenseBarColor = new SKColor(234, 179, 8);
-
     private static readonly SKColor FoodPheromoneColor = new SKColor(34, 197, 94);
-    private static readonly SKColor EnemyPheromoneColor = new SKColor(239, 68, 68);
 
     private static readonly Color[] ColonyColors = new Color[]
     {
@@ -74,10 +49,8 @@ public partial class Engine : Form
     };
 
     private static readonly Color FoodColor = Color.FromArgb(34, 197, 94);
-
     private World _world = null!;
     private Camera _camera = new Camera();
-
     private List<UiButton> _buttons = new List<UiButton>();
     private PlacingMode _placingMode = PlacingMode.None;
     private int _nextColorIndex;
@@ -85,59 +58,41 @@ public partial class Engine : Form
     private int _mouseY;
     private bool _isDrawingFood;
     private bool _showPheromones;
-
-    // Selected ant debug overlay.
     private Ant? _selectedAnt;
     private Colony? _selectedAntColony;
     private bool _followSelectedAnt;
-
-    // Right-mouse drag pan state.
     private bool _isRightDragging;
     private int _rightDragLastX;
     private int _rightDragLastY;
-
-    // Latched pan keys (WASD). Checked every Tick so the speed is
-    // frame-rate-independent and key-repeat-free.
     private bool _keyPanLeft;
     private bool _keyPanRight;
     private bool _keyPanUp;
     private bool _keyPanDown;
     private long _lastPanTicks;
-
     private readonly Stopwatch _fpsStopwatch = new Stopwatch();
     private int _framesThisSecond;
     private int _fps;
     private double _lastFrameMs;
-
     private double _simStageMs;
     private double _antStageMs;
     private const double StageEmaAlpha = 0.05;
-
     private FastSKGLControl _skControl = null!;
     private SKPaint _fillPaint = null!;
     private SKPaint _strokePaint = null!;
     private SKPaint _textPaint = null!;
     private SKPaint _antPaint = null!;
     private SKPicture _gridPicture = null!;
-    private SKPicture? _gridLinesPicture;  // separate picture for grid lines (zoom-dependent)
+    private SKPicture? _gridLinesPicture; 
     private SKPicture _hudPicture = null!;
     private SKPicture _statsPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private bool _buttonsDirty = true;
-
-    // Cached food picture — only rebuilt when food actually changes.
     private SKPicture? _foodPicture;
     private int _foodPictureCachedVersion = -1;
-
-    // Cached TopBar picture — only rebuilt when pause/speed/resize.
     private SKPicture? _topBarPicture;
     private bool _topBarDirty = true;
-
-    // Cached nests picture — rebuilt when colonies are added/removed.
     private SKPicture? _nestsPicture;
     private int _nestsPictureCachedCount = -1;
-
-    // New UI components -- owned by the engine, wired in constructor.
     private UiTopBar _topBar = null!;
     private UiStartOverlay _startOverlay = null!;
     private SKPaint _titlePaint = null!;
@@ -147,34 +102,23 @@ public partial class Engine : Form
     private SKPath _foodPath = null!;
     private SKRect[] _antBodySprites = Array.Empty<SKRect>();
     private SKRotationScaleMatrix[] _antBodyTransforms = Array.Empty<SKRotationScaleMatrix>();
-    // Reusable buffer for batched ant dot positions (zoom-out mode).
     private SKPoint[] _antDotPoints = Array.Empty<SKPoint>();
     private SKColorFilter? _antBodyColorFilter;
     private uint _antBodyColorFilterCachedColor;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
-
     private readonly Stopwatch _hudStopwatch = new Stopwatch();
     private const int HudUpdateIntervalMs = 50;
-
     private int _frameCap = 10000;
     private long _ticksPerFrame;
     private long _nextFrameTicks;
-
     private long _ticksPerSimStep;
     private long _simAccumulatorTicks;
     private long _lastSimTimestamp;
-
-    // Sim control state. Speed scales the wall-clock delta fed to the
-    // fixed-timestep accumulator, so 2.0 runs the sim at double speed
-    // while 0.5 runs it at half. Paused freezes the simulation but
-    // leaves rendering / panning / zooming responsive.
     private bool _paused;
     private double _speedMultiplier = 1.0;
     private static readonly double[] SpeedChoices = new double[] { 1.0, 2.0, 5.0, 10.0 };
-
     private SKColor _foodSkColor;
-
     private readonly List<IDisposable> _ownedDisposables = new List<IDisposable>();
 
     public Engine()
@@ -234,20 +178,9 @@ public partial class Engine : Form
         _skControl.MouseUp += OnSkMouseUp;
         _skControl.MouseWheel += OnSkMouseWheel;
         Controls.Add(_skControl);
-
-        // Route keyboard through the Form so WASD / ESC fire no matter
-        // which child control has focus.
         KeyPreview = true;
 
-        // --- UI top bar: pause / speed controls ---
-        _topBar = new UiTopBar(
-            SpeedChoices,
-            () => _paused,
-            () => _speedMultiplier,
-            TogglePause,
-            SetSpeed);
-
-        // --- Start overlay: map selection screen ---
+        _topBar = new UiTopBar(SpeedChoices, () => _paused, () => _speedMultiplier, TogglePause, SetSpeed);
         _startOverlay = new UiStartOverlay(OnStartOverlayPick);
         string mapsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Maps");
         _startOverlay.Scan(mapsDir, 180);
@@ -257,8 +190,6 @@ public partial class Engine : Form
         _camera.FitWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, FitMarginPx);
         _lastPanTicks = Stopwatch.GetTimestamp();
 
-        // If maps were found, show the start overlay. Otherwise skip
-        // straight to the demo map.
         if (_startOverlay.Entries.Count > 0)
         {
             _paused = true;
@@ -351,9 +282,6 @@ public partial class Engine : Form
 
     private void InitializeWorld()
     {
-        // Try to pick up a PNG from the Maps/ folder next to the
-        // executable. Falling back to the in-code DemoMap means the
-        // game always boots even on a fresh checkout with no assets.
         MapDefinition map = LoadFirstMapOrDemo();
 
         _world = new World(map.Width, map.Height);
@@ -365,19 +293,11 @@ public partial class Engine : Form
             ColonySeed seed = map.ColonySeeds[i];
             _world.AddColony(seed.X, seed.Y, seed.Color);
         }
-        // Manual "Add Colony" picks up after whatever the map used so
-        // we don't re-use the team palette for user-placed nests.
         _nextColorIndex = seedCount;
 
         RecordGridPicture();
-        // Food and nests are built later in the constructor after
-        // all paints are ready, via the RecordFoodPicture / RecordNestsPicture
-        // calls after _hudStopwatch.Start().
     }
 
-    // Scan <exe>/Maps/*.png for map images in a stable order. First hit
-    // wins; if the folder is missing or empty we fall through to the
-    // hard-coded DemoMap so the engine still runs.
     private static MapDefinition LoadFirstMapOrDemo()
     {
         string exeDir = AppContext.BaseDirectory;
@@ -403,9 +323,6 @@ public partial class Engine : Form
         return DemoMap.Build();
     }
 
-    // Called when the user picks a map in the start overlay. Swaps in
-    // the chosen world, hides the overlay, stays paused so the player
-    // can orient before pressing Play.
     private void OnStartOverlayPick(UiStartOverlay.Entry entry)
     {
         MapDefinition map = MapLoader.Load(entry.Path);
@@ -433,18 +350,11 @@ public partial class Engine : Form
     {
         int gridWidth = _world.Width * CellSize;
         int gridHeight = _world.Height * CellSize;
-
-        // Extra margin around the world so the thick border is fully
-        // visible inside the SKPicture.
         const int Margin = 16;
         SKRect cullRect = new SKRect(-Margin, -Margin, gridWidth + Margin, gridHeight + Margin);
 
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
-
-        // 0. Filled rounded rect in WallColor — the unified base for
-        //    border + walls. Walls (same color) merge on top. Only the
-        //    4 rounded corners peek through where no wall cell covers them.
         using (SKPaint basePaint = new SKPaint())
         {
             basePaint.Style = SKPaintStyle.Fill;
@@ -459,7 +369,6 @@ public partial class Engine : Form
             recordingCanvas.DrawRoundRect(baseRr, basePaint);
         }
 
-        // 1. World background fill.
         using (SKPaint worldBgPaint = new SKPaint())
         {
             worldBgPaint.Style = SKPaintStyle.Fill;
@@ -468,9 +377,6 @@ public partial class Engine : Form
             recordingCanvas.DrawRect(0, 0, gridWidth, gridHeight, worldBgPaint);
         }
 
-        // 3. Grid lines — recorded into a SEPARATE SKPicture so we can
-        //    skip the replay when zoomed out (lines invisible anyway).
-        //    All lines are batched into a single SKPath = 1 GPU draw call.
         {
             SKPictureRecorder gridLinesRecorder = new SKPictureRecorder();
             SKCanvas glCanvas = gridLinesRecorder.BeginRecording(cullRect);
@@ -480,7 +386,7 @@ public partial class Engine : Form
                 linePaint.Style = SKPaintStyle.Stroke;
                 linePaint.IsAntialias = false;
                 linePaint.Color = UiTheme.GridLine;
-                linePaint.StrokeWidth = 0;  // hairline = always 1 device pixel, any zoom
+                linePaint.StrokeWidth = 0;
 
                 using (SKPath linePath = new SKPath())
                 {
@@ -509,7 +415,6 @@ public partial class Engine : Form
             gridLinesRecorder.Dispose();
         }
 
-        // 3. Walls — baked as a SINGLE batched SKPath (1 GPU draw call).
         using (SKPaint wallPaint = new SKPaint())
         {
             wallPaint.Style = SKPaintStyle.Fill;
@@ -562,9 +467,6 @@ public partial class Engine : Form
 
         if (_paused)
         {
-            // Throw away the elapsed wall-clock so the accumulator
-            // doesn't unleash a burst of catch-up ticks the moment we
-            // un-pause. Rendering still runs so UI stays responsive.
             _simAccumulatorTicks = 0;
         }
         else
@@ -608,11 +510,6 @@ public partial class Engine : Form
             return;
         }
 
-        // The world is no longer glued to the window centre. The
-        // camera keeps whatever pan/zoom the user has, clamped so the
-        // world doesn't slide entirely off-screen after a resize.
-        // Camera clamp removed — pan and zoom are fully free.
-
         RebuildButtons();
     }
 
@@ -620,8 +517,6 @@ public partial class Engine : Form
     {
         _buttons.Clear();
 
-        // Bottom toolbar: Add Colony, Add Food, Pheromones — centered
-        // horizontally across the window.
         int buttonY = ClientSize.Height - ButtonHeight - ButtonPadding * 2;
         int totalButtonsWidth = ButtonWidth * 3 + ButtonPadding * 2;
         int startX = (ClientSize.Width - totalButtonsWidth) / 2;
@@ -652,18 +547,14 @@ public partial class Engine : Form
         _buttonsDirty = true;
         _topBarDirty = true;
 
-        // Pause + speed are now owned by UiTopBar.
         _topBar.Layout(ClientSize.Width);
         _topBar.CacheTextPositions(_textPaint, _textMetrics, _textHeight);
 
-        // Start overlay layout (if visible).
         _startOverlay.Layout(ClientSize.Width, ClientSize.Height);
     }
 
     private static string FormatSpeedLabel(double speed)
     {
-        // Prefer "1x" / "2x" over "1.0x" when the value is an integer,
-        // "0.5x" otherwise. Keeps the chips narrow.
         if (Math.Abs(speed - Math.Round(speed)) < 0.001)
         {
             return ((int)Math.Round(speed)).ToString() + "x";
@@ -674,8 +565,6 @@ public partial class Engine : Form
     private void TogglePause()
     {
         _paused = !_paused;
-        // UiTopBar pulls pause state via callback, so just re-layout
-        // to flip the "Pause"/"Play" label.
         _topBar.Layout(ClientSize.Width);
         _topBar.CacheTextPositions(_textPaint, _textMetrics, _textHeight);
         _topBarDirty = true;
@@ -688,8 +577,6 @@ public partial class Engine : Form
             return;
         }
         _speedMultiplier = speed;
-        // Discard pending accumulator so a big speed change doesn't
-        // deliver a one-shot burst of ticks.
         _simAccumulatorTicks = 0;
         _topBarDirty = true;
     }
@@ -703,7 +590,6 @@ public partial class Engine : Form
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
 
-        // Rounded panel background + border.
         float px = 8f;
         float py = UiTopBar.BarHeight + 8f;
         using (SKPaint bgPaint = UiTheme.NewFillPaint(UiTheme.BgPanel))
@@ -722,7 +608,7 @@ public partial class Engine : Form
             float baseX = px + 10f;
             float baseY = py + 6f - hudText.FontMetrics.Ascent;
 
-            float valX = baseX + 50f;  // value column — tight but readable
+            float valX = baseX + 50f;
 
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("FPS", baseX, baseY, hudText);
@@ -754,8 +640,6 @@ public partial class Engine : Form
 
     private void RecordButtonsPicture()
     {
-        // Buttons are static between hovers/clicks, so we cache them
-        // as an SKPicture and only rebuild when state changes.
         int w = ClientSize.Width;
         int h = ClientSize.Height;
         SKRect cullRect = new SKRect(0, 0, w + 20, h + 20);
@@ -774,10 +658,7 @@ public partial class Engine : Form
 
     private void RecordStatsPicture()
     {
-        // Record the entire stats panel into an SKPicture so the
-        // expensive per-colony drawing (rounded cards, population
-        // graph paths, role bars) only runs every 50ms instead of
-        // every frame. This was the #1 source of the perf regression.
+
         SKRect cullRect = new SKRect(0, 0, ClientSize.Width + 20, ClientSize.Height + 20);
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas rc = recorder.BeginRecording(cullRect);
@@ -788,9 +669,6 @@ public partial class Engine : Form
         recorder.Dispose();
     }
 
-    // Cache food cells as an SKPicture. Only rebuilt when the food
-    // count changes (food placed, food eaten). Eliminates 613 AddRect
-    // + path rebuild every frame for static food.
     private void RecordFoodPicture()
     {
         int foodCount = _world.FoodCount;
@@ -819,12 +697,10 @@ public partial class Engine : Form
                 int cellX = foodCells[i].X;
                 int cellY = foodCells[i].Y;
                 float amount = _world.GetFoodAmount(cellX, cellY);
-                // 4 pickup steps: 0.4=100%, 0.3=75%, 0.2=50%, 0.1=25%
-                // Map amount (0..0.4) to alpha (0..255) in 4 discrete steps.
-                int step = (int)(amount * 10f); // 4,3,2,1,0
+                int step = (int)(amount * 10f);
                 if (step > 4) step = 4;
-                byte alpha = (byte)(step * 64); // 256,192,128,64,0
-                if (alpha < 64) alpha = 64; // min visible
+                byte alpha = (byte)(step * 64);
+                if (alpha < 64) alpha = 64;
                 if (step == 4) alpha = 255;
                 foodPaint.Color = _foodSkColor.WithAlpha(alpha);
                 rc.DrawRect(cellX * CellSize, cellY * CellSize, CellSize, CellSize, foodPaint);
@@ -835,13 +711,9 @@ public partial class Engine : Form
         recorder.Dispose();
     }
 
-    // Cache the top bar as an SKPicture. Only rebuilt when pause state,
-    // speed, or window size changes. Eliminates ~18 live draw calls
-    // per frame (bar bg, border, pause button, 4 speed segments, texts).
     private void RecordTopBarPicture()
     {
         int w = ClientSize.Width;
-        // Re-layout so active speed index and pause label refresh.
         _topBar.Layout(w);
         _topBar.CacheTextPositions(_textPaint, _textPaint.FontMetrics, -_textPaint.FontMetrics.Ascent + _textPaint.FontMetrics.Descent);
 
@@ -855,9 +727,6 @@ public partial class Engine : Form
         recorder.Dispose();
         _topBarDirty = false;
     }
-
-    // Cache colony nests as an SKPicture. Only rebuilt when colonies
-    // are added or removed. Nests don't move, so this is static.
     private void RecordNestsPicture()
     {
         IReadOnlyList<Colony> colonies = _world.Colonies;
@@ -1003,7 +872,6 @@ public partial class Engine : Form
             return;
         }
 
-        // No placement mode — try to select an ant under the cursor.
         TrySelectAntAt(e.X, e.Y);
     }
 
@@ -1012,7 +880,6 @@ public partial class Engine : Form
         _mouseX = e.X;
         _mouseY = e.Y;
 
-        // Hover tracking for all interactive UI.
         bool wasPauseHovered = _topBar.PauseButton.IsHovered;
         _topBar.UpdateHover(e.X, e.Y);
         if (_topBar.PauseButton.IsHovered != wasPauseHovered)
@@ -1036,7 +903,6 @@ public partial class Engine : Form
             _rightDragLastX = e.X;
             _rightDragLastY = e.Y;
             _camera.PanScreen(dx, dy);
-            // Camera clamp removed — pan and zoom are fully free.
             return;
         }
 
@@ -1062,9 +928,6 @@ public partial class Engine : Form
 
     private void OnSkMouseWheel(object? sender, MouseEventArgs e)
     {
-        // WheelDelta is 120 per notch on most mice. Positive = towards
-        // user (zoom in). Use compound factors so repeated notches
-        // scale smoothly.
         int steps = e.Delta / 120;
         if (steps == 0 && e.Delta != 0)
         {
@@ -1092,7 +955,6 @@ public partial class Engine : Form
         }
 
         _camera.ZoomAt(e.X, e.Y, factor);
-        // Camera clamp removed — pan and zoom are fully free.
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -1191,11 +1053,8 @@ public partial class Engine : Form
 
         float step = KeyboardPanPxPerSecond * dt;
         _camera.PanScreen(dx * step, dy * step);
-        // Camera clamp removed — pan and zoom are fully free.
     }
 
-    // Convert a screen-space pixel to a world cell, undoing the
-    // camera transform first.
     private void ScreenToCell(int screenX, int screenY, out int cellX, out int cellY)
     {
         _camera.ScreenToWorld(screenX, screenY, out float wx, out float wy);
@@ -1276,20 +1135,15 @@ public partial class Engine : Form
         const float invSup = AntRenderer.AtlasInverseSupersample;
         const float anchor = AntRenderer.AtlasAnchor;
 
-        // We draw inside the camera transform, so ant positions are
-        // emitted in world-pixel coordinates and the canvas scale
-        // takes care of the zoom.
         for (int i = 0; i < antCount; i++)
         {
             Ant ant = antsSpan[i];
             float centerX = ant.X * CellSize;
             float centerY = ant.Y * CellSize;
 
-            // Lunge animation offset: quick thrust forward, slow return.
             if (ant.LungeTimer > 0f)
             {
-                float t = ant.LungeTimer / CombatSystem.LungeDuration; // 1→0
-                // Triangle wave: peak at t=0.5 (midpoint of animation).
+                float t = ant.LungeTimer / CombatSystem.LungeDuration;
                 float offset = t > 0.5f ? (1f - t) * 2f : t * 2f;
                 float lungePixels = offset * CombatSystem.LungeDistance * CellSize;
                 centerX += ant.LungeDirX * lungePixels;
@@ -1321,30 +1175,23 @@ public partial class Engine : Form
         int antCount = antsList.Count;
         if (antCount == 0) return;
 
-        // Resize buffer to exact ant count. DrawPoints uses the
-        // FULL array, so the length must match exactly. Array only
-        // reallocates when the count actually changes.
         if (_antDotPoints.Length != antCount)
         {
             _antDotPoints = new SKPoint[antCount];
         }
 
-        // Fill the points buffer with ant world-pixel positions.
         Span<Ant> antsSpan = CollectionsMarshal.AsSpan(antsList);
         for (int i = 0; i < antCount; i++)
         {
             _antDotPoints[i] = new SKPoint(antsSpan[i].X * CellSize, antsSpan[i].Y * CellSize);
         }
 
-        // Round stroke cap = circles, not squares. Diameter scales
-        // with CellSize so dots stay visible at extreme zoom-out.
         float dotDiameter = Math.Max(3f, CellSize * 0.6f);
 
         _fillPaint.Color = colony.CachedSkColor;
         _fillPaint.StrokeCap = SKStrokeCap.Round;
         _fillPaint.StrokeWidth = dotDiameter;
         canvas.DrawPoints(SKPointMode.Points, _antDotPoints, _fillPaint);
-        // Restore default stroke cap so other code isn't affected.
         _fillPaint.StrokeCap = SKStrokeCap.Butt;
     }
 
@@ -1394,7 +1241,6 @@ public partial class Engine : Form
         int worldWidth = _world.Width;
         int worldHeight = _world.Height;
 
-        // Viewport culling.
         _camera.ScreenToWorld(0, 0, out float tlx, out float tly);
         _camera.ScreenToWorld(ClientSize.Width, ClientSize.Height, out float brx, out float bry);
         int minCX = Math.Max(0, (int)Math.Floor(tlx / CellSize) - 1);
@@ -1456,8 +1302,6 @@ public partial class Engine : Form
                     _fillPaint.Color = new SKColor(FoodPheromoneColor.Red, FoodPheromoneColor.Green, FoodPheromoneColor.Blue, alpha);
                     canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
                 }
-
-                // EnemyTrail exists but is not visualized — too noisy.
             }
         }
     }
@@ -1507,18 +1351,17 @@ public partial class Engine : Form
     private void DrawStatsCard(SKCanvas canvas, Colony colony, int x, int y, bool isDead)
     {
         SKColor colonyColor = colony.CachedSkColor;
-
-        // --- card background: rounded rect with subtle border ---
         _fillPaint.Color = UiTheme.BgPanel;
         _borderPaint.Color = UiTheme.BorderSubtle;
         _borderPaint.StrokeWidth = UiTheme.BorderThin;
         UiPanel.DrawWithBorder(canvas, _fillPaint, _borderPaint, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
-
-        // --- colony color accent bar at top (4px tall) ---
         float healthFraction = colony.NestHealthFraction;
+
         if (healthFraction < 0f) healthFraction = 0f;
         if (healthFraction > 1f) healthFraction = 1f;
+
         float barWidth = (StatsPanelWidth - 2f) * healthFraction;
+
         if (barWidth > 0f)
         {
             _fillPaint.Color = colonyColor;
@@ -1527,19 +1370,13 @@ public partial class Engine : Form
 
         float pad = StatsCardPadding;
         float textX = x + pad;
-
-        // Health bar ends at y+7. Leave clear gap before text.
-        // With textSize 14 the ascent is ~-12, so baseline at y+24
-        // puts the top of the text at y+12 — well below the bar.
         float curY = y + 24f;
 
-        // --- header: "Ants ###  Food ###" in bold text ---
         _textPaint.Color = UiTheme.TextStrong;
         string headerLine = "Ants " + colony.Ants.Count + "   Food " + colony.NestFood;
         canvas.DrawText(headerLine, textX, curY, _textPaint);
         curY += 10f;
 
-        // --- population + food graph ---
         float graphW = StatsPanelWidth - pad * 2f;
         float graphH = StatsGraphHeight + 8f;
         _fillPaint.Color = UiTheme.BgPanelAlt;
@@ -1547,15 +1384,12 @@ public partial class Engine : Form
         DrawPopulationGraph(canvas, colony, textX + 2f, curY + 2f, graphW - 4f, graphH - 4f);
         curY += graphH + 6f;
 
-        // --- role breakdown ---
         _textPaint.Color = UiTheme.TextBody;
         DrawRoleBreakdown(canvas, colony, textX, curY);
         curY += StatsLineHeight * 4f + 4f;
 
-        // --- queen intent ---
         DrawQueenIntent(canvas, colony, textX, curY);
 
-        // --- dead overlay ---
         if (isDead)
         {
             _fillPaint.Color = new SKColor(0, 0, 0, 160);
@@ -1686,7 +1520,6 @@ public partial class Engine : Form
         _strokePaint.IsAntialias = true;
         canvas.DrawPath(linePath, _strokePaint);
 
-        // Food line in green, thinner.
         int maxFood = stats.GetMaxFood();
         if (maxFood < 1) maxFood = 1;
         using SKPath foodLinePath = new SKPath();
@@ -1739,23 +1572,16 @@ public partial class Engine : Form
     private void OnSkPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
     {
         SKCanvas canvas = e.Surface.Canvas;
-
-        // Root background -- warm dark gray, not black.
         canvas.Clear(UiTheme.BgRoot);
 
-        // --- Start overlay blocks all world rendering when visible. ---
         if (_startOverlay.Visible)
         {
             _startOverlay.Draw(canvas, ClientSize.Width, ClientSize.Height, _fillPaint, _borderPaint, _textPaint, _titlePaint);
             return;
         }
 
-        // ------- world-space rendering (camera transform applied) -------
         canvas.Save();
         _camera.Apply(canvas);
-
-        // Grid background + walls + border — single SKPicture replay.
-        // Walls are batched as one SKPath inside the picture (1 draw call).
         canvas.DrawPicture(_gridPicture);
 
         if (_showPheromones)
@@ -1763,8 +1589,6 @@ public partial class Engine : Form
             DrawPheromoneOverlay(canvas);
         }
 
-        // Food cells — cached as SKPicture, rebuilt when food changes
-        // (pickup, new food placed). Per-cell alpha shows remaining amount.
         if (_world.FoodVersion != _foodPictureCachedVersion)
         {
             RecordFoodPicture();
@@ -1774,8 +1598,6 @@ public partial class Engine : Form
             canvas.DrawPicture(_foodPicture);
         }
 
-        // Colony nests — cached as SKPicture, rebuilt only when
-        // colonies are added/removed. Nests never move.
         IReadOnlyList<Colony> colonies = _world.Colonies;
         int colonyCount = colonies.Count;
         if (colonyCount != _nestsPictureCachedCount)
@@ -1787,15 +1609,11 @@ public partial class Engine : Form
             canvas.DrawPicture(_nestsPicture);
         }
 
-        // Grid lines — drawn OVER food/nests so they're visible everywhere.
-        // Separate SKPicture, only replayed when zoomed in enough (same
-        // threshold as ant dots → full shapes).
         if (_gridLinesPicture != null && _camera.Zoom >= 0.5f)
         {
             canvas.DrawPicture(_gridLinesPicture);
         }
 
-        // Ants — skip timing overhead when no ants exist.
         if (colonyCount > 0)
         {
             bool hasAnyAnts = false;
@@ -1821,7 +1639,6 @@ public partial class Engine : Form
             }
         }
 
-        // Placement ghosts.
         if (_placingMode == PlacingMode.Colony)
         {
             ScreenToCell(_mouseX, _mouseY, out int hoverCellX, out int hoverCellY);
@@ -1842,17 +1659,10 @@ public partial class Engine : Form
             }
         }
 
-        // Selected ant world-space overlays (drawn OVER ants, inside camera transform).
         DrawSelectedAntOverlay(canvas);
-
         canvas.Restore();
-
-        // ------- screen-space UI (drawn OVER the world) -------
-
-        // Selected ant info panel (screen space).
         DrawSelectedAntInfoPanel(canvas);
 
-        // Top bar — cached as SKPicture, rebuilt only on pause/speed/resize.
         if (_topBarDirty)
         {
             RecordTopBarPicture();
@@ -1862,15 +1672,11 @@ public partial class Engine : Form
             canvas.DrawPicture(_topBarPicture);
         }
 
-        // Colony stats panel (right side) -- cached as SKPicture,
-        // rebuilt every 50ms.
         if (_statsPicture != null)
         {
             canvas.DrawPicture(_statsPicture);
         }
 
-        // Bottom toolbar buttons — cached as SKPicture, rebuilt only
-        // when hover/active state changes.
         if (_buttonsDirty)
         {
             RecordButtonsPicture();
@@ -1880,7 +1686,6 @@ public partial class Engine : Form
             canvas.DrawPicture(_buttonsPicture);
         }
 
-        // Performance HUD (top-left, below top bar).
         canvas.DrawPicture(_hudPicture);
     }
 
@@ -1925,14 +1730,12 @@ public partial class Engine : Form
         return PeekMessage(out NativeMessage _, IntPtr.Zero, 0, 0, 0) == 0;
     }
 
-    // ───── Selected ant: click-to-select + debug overlays ─────
-
-    private const float AntClickRadiusCells = 1.5f; // how close click must be to ant center
+    private const float AntClickRadiusCells = 1.5f;
 
     private void TrySelectAntAt(int screenX, int screenY)
     {
         _camera.ScreenToWorld(screenX, screenY, out float wx, out float wy);
-        float worldX = wx / CellSize; // convert to cell coords
+        float worldX = wx / CellSize;
         float worldY = wy / CellSize;
 
         Ant? bestAnt = null;
@@ -1981,13 +1784,11 @@ public partial class Engine : Form
         float cx = ant.X * CellSize;
         float cy = ant.Y * CellSize;
 
-        // Follow camera to selected ant.
         if (_followSelectedAnt)
         {
             _camera.ScreenToWorld(ClientSize.Width / 2, ClientSize.Height / 2, out float camCx, out float camCy);
             float targetX = cx;
             float targetY = cy;
-            // Smooth lerp toward ant position.
             float lerpedX = camCx + (targetX - camCx) * 0.08f;
             float lerpedY = camCy + (targetY - camCy) * 0.08f;
             float diffX = lerpedX - camCx;
@@ -1999,27 +1800,21 @@ public partial class Engine : Form
         AntRole role = ant.Role;
         SKColor colonyColor = colony.CachedSkColor;
         float heading = ant.Heading;
-
-        // Enable AA for all overlay drawing.
         _fillPaint.IsAntialias = true;
-
-        // ── 1. Smell circle (pheromone sensor range) ──
         float smellRadius = role.SensorDistance * CellSize;
         _fillPaint.Style = SKPaintStyle.Stroke;
         _fillPaint.StrokeWidth = 1.5f / _camera.Zoom;
         _fillPaint.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 70);
         canvas.DrawCircle(cx, cy, smellRadius, _fillPaint);
         _fillPaint.Style = SKPaintStyle.Fill;
-
-        // ── 2. Vision cone (what the ant SEES — forward-facing pie wedge) ──
         float visionDist = role.VisionRange * CellSize;
         float sensorAngle = role.SensorAngleRad;
+
         if (visionDist > 0)
         {
             DrawVisionCone(canvas, cx, cy, heading, sensorAngle, visionDist, colonyColor);
         }
 
-        // ── 3. Heading arrow (extends to vision range) ──
         float arrowLen = role.VisionRange * CellSize;
         float ax = cx + (float)Math.Cos(heading) * arrowLen;
         float ay = cy + (float)Math.Sin(heading) * arrowLen;
@@ -2027,7 +1822,6 @@ public partial class Engine : Form
         _fillPaint.StrokeWidth = 2f / _camera.Zoom;
         _fillPaint.Color = new SKColor(255, 255, 255, 200);
         canvas.DrawLine(cx, cy, ax, ay, _fillPaint);
-        // Arrowhead.
         float arrowHeadLen = 0.8f * CellSize;
         float arrowSpread = 0.4f;
         canvas.DrawLine(ax, ay,
@@ -2037,8 +1831,6 @@ public partial class Engine : Form
             ax - (float)Math.Cos(heading + arrowSpread) * arrowHeadLen,
             ay - (float)Math.Sin(heading + arrowSpread) * arrowHeadLen, _fillPaint);
         _fillPaint.Style = SKPaintStyle.Fill;
-
-        // Restore _fillPaint defaults.
         _fillPaint.Style = SKPaintStyle.Fill;
         _fillPaint.StrokeWidth = 0f;
         _fillPaint.StrokeCap = SKStrokeCap.Butt;
@@ -2047,7 +1839,7 @@ public partial class Engine : Form
 
     private void DrawVisionCone(SKCanvas canvas, float cx, float cy, float heading, float halfAngle, float radius, SKColor colonyColor)
     {
-        // Build a wedge path: center → arc from (heading-halfAngle) to (heading+halfAngle) → back to center.
+        
         float startAngle = heading - halfAngle;
         float endAngle = heading + halfAngle;
         const int arcSegments = 20;
@@ -2056,7 +1848,6 @@ public partial class Engine : Form
         using SKPath conePath = new SKPath();
         conePath.MoveTo(cx, cy);
 
-        // Arc points along the outer edge.
         for (int i = 0; i <= arcSegments; i++)
         {
             float a = startAngle + angleStep * i;
@@ -2067,12 +1858,9 @@ public partial class Engine : Form
 
         conePath.Close();
 
-        // Filled wedge (semi-transparent).
         _fillPaint.Style = SKPaintStyle.Fill;
         _fillPaint.Color = new SKColor(255, 255, 255, 16);
         canvas.DrawPath(conePath, _fillPaint);
-
-        // Stroke outline.
         _fillPaint.Style = SKPaintStyle.Stroke;
         _fillPaint.StrokeWidth = 1.5f / _camera.Zoom;
         _fillPaint.Color = new SKColor(255, 255, 255, 80);
@@ -2087,20 +1875,15 @@ public partial class Engine : Form
         Colony? colony = _selectedAntColony;
         if (ant == null || colony == null) return;
 
-        // Panel below the performance HUD.
         float panelW = 220f;
         float panelH = 230f;
         float panelX = 8f;
-        float panelY = UiTopBar.BarHeight + 8f + 84f + 8f; // below HUD (bar+gap+hudH+gap)
-
-        // Background.
+        float panelY = UiTopBar.BarHeight + 8f + 84f + 8f;
         using SKPaint bgPaint = new SKPaint();
         bgPaint.Color = new SKColor(30, 30, 36, 230);
         bgPaint.IsAntialias = true;
         SKRect panelRect = new SKRect(panelX, panelY, panelX + panelW, panelY + panelH);
         canvas.DrawRoundRect(panelRect, 8, 8, bgPaint);
-
-        // Border in colony color.
         bgPaint.Style = SKPaintStyle.Stroke;
         bgPaint.StrokeWidth = 2f;
         bgPaint.Color = colony.CachedSkColor;
@@ -2114,14 +1897,10 @@ public partial class Engine : Form
         float x = panelX + 10f;
         float valX = panelX + 130f;
         float y = panelY + 22f;
-
-        // Title: role name.
         textPaint.TextSize = 14f;
         textPaint.Color = colony.CachedSkColor;
         canvas.DrawText(ant.Role.RoleName, x, y, textPaint);
         y += lineH + 4f;
-
-        // Info lines.
         textPaint.TextSize = 12f;
         textPaint.Color = new SKColor(200, 200, 210);
 
@@ -2134,8 +1913,7 @@ public partial class Engine : Form
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Engaged", ant.EngagementTimer > 0 ? $"{ant.EngagementTimer:F2}s" : "-");
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Age", $"{ant.Age:F0}s");
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Autonomy", $"{ant.InternalClock:F0} / {ant.Role.AutonomyMax:F0}");
-
-        // Legend (compact single line with colored labels).
+        
         y += 6f;
         textPaint.TextSize = 10f;
         textPaint.Color = new SKColor(255, 255, 255, 120);
