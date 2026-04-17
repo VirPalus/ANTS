@@ -14,6 +14,11 @@ static class Program
             return;
         }
 
+        RunGui();
+    }
+
+    static void RunGui()
+    {
         ApplicationConfiguration.Initialize();
         Application.SetColorMode(SystemColorMode.System);
         Application.Run(new Engine());
