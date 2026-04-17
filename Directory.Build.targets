@@ -1,0 +1,25 @@
+<Project>
+  <!--
+    SANDBOX-ONLY BUILD HYGIENE
+    =========================
+    This file exists to make `dotnet build` work from the Linux sandbox where
+    the Windows-side `obj/` and `bin/` directories (produced by local IDE
+    builds) may still be present. When MSBuild auto-generates its own
+    AssemblyInfo in the out-of-tree intermediate directory and the Windows-side
+    `obj/Debug/net10.0-windows/ANTS.AssemblyInfo.cs` is ALSO picked up by the
+    default Compile glob, the build fails with CS0579 (duplicate assembly
+    attributes).
+
+    The workaround is to Compile-Remove anything under `obj/**` and `bin/**`
+    but ONLY when running on Unix/macOS, so normal Windows development
+    builds are untouched. On Windows, MSBuild handles obj/bin correctly on
+    its own and this ItemGroup is a no-op.
+
+    If you ever see CS0579 on Windows, the root cause is elsewhere and this
+    file is NOT the place to fix it.
+  -->
+  <ItemGroup Condition=" '$(OS)' == 'Unix' ">
+    <Compile Remove="obj/**/*.cs" />
+    <Compile Remove="bin/**/*.cs" />
+  </ItemGroup>
+</Project>
