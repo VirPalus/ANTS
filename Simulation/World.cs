@@ -55,7 +55,7 @@ public class World
         get { return _foodCells; }
     }
 
-    public World(int width, int height)
+    public World(int width, int height, int? seed = null)
     {
         Width = width;
         Height = height;
@@ -68,7 +68,7 @@ public class World
         _deadColonies = new List<Colony>();
         _foodCells = new Point[InitialFoodCapacity];
         _foodCount = 0;
-        _random = new Random();
+        _random = seed.HasValue ? new Random(seed.Value) : new Random();
         SimulationTime = 0f;
         SpatialGrid = new SpatialGrid(Width, Height);
         ComputeWallDistance();
