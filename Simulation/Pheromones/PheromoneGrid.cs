@@ -3,20 +3,15 @@ using System.Collections.Generic;
 
 public class PheromoneGrid
 {
-    public const int ChannelCount = 4;
+    public const int ChannelCount = 3;
     public const float MaxIntensity = 1.0f;
-    public const float HomeDecayPerSecond = 1f / 60f;
-    public const float FoodDecayPerSecond = 1f / 30f;
-    public const float EnemyDecayPerSecond = 1f / 30f;
-    public const float DangerDecayPerSecond = 1f / 120f;
+    public const float EstablishedRouteMax = 2.0f;
+    public const float ReinforceFraction = 0.10f;
+    public const float DecayPerSecond = 1f / 60f;
     public const float PermanentHomeIntensity = 1.0f;
 
     private readonly int _width;
     private readonly int _height;
-    // Home/Food/Danger live here (index 0,1,3). Index 2 (EnemyTrail) is
-    // unused in this array because enemy trails are stored per-target-colony
-    // in _enemyTrails so a kill can wipe exactly that target's trail without
-    // disturbing trails about other still-living enemies.
     private readonly float[][,] _intensity;
     private readonly bool[,] _permanentHome;
     private readonly Dictionary<int, float[,]> _enemyTrails;
@@ -68,7 +63,16 @@ public class PheromoneGrid
         float existing = grid[x, y];
         if (intensity > existing)
         {
+            // First ant or stronger deposit — set directly.
             grid[x, y] = intensity > MaxIntensity ? MaxIntensity : intensity;
+        }
+        else
+        {
+            // Established Route: trail already exists. Add 10% of deposit
+            // on top so paths used by multiple ants persist longer.
+            float reinforced = existing + intensity * ReinforceFraction;
+            if (reinforced > EstablishedRouteMax) reinforced = EstablishedRouteMax;
+            grid[x, y] = reinforced;
         }
     }
 
@@ -96,6 +100,12 @@ public class PheromoneGrid
         if (intensity > existing)
         {
             grid[x, y] = intensity > MaxIntensity ? MaxIntensity : intensity;
+        }
+        else
+        {
+            float reinforced = existing + intensity * ReinforceFraction;
+            if (reinforced > EstablishedRouteMax) reinforced = EstablishedRouteMax;
+            grid[x, y] = reinforced;
         }
     }
 
@@ -151,10 +161,9 @@ public class PheromoneGrid
 
     public void DecayStep(float dt)
     {
-        DecayChannel(PheromoneChannel.HomeTrail, HomeDecayPerSecond * dt);
-        DecayChannel(PheromoneChannel.FoodTrail, FoodDecayPerSecond * dt);
-        DecayEnemyTrails(EnemyDecayPerSecond * dt);
-        DecayChannel(PheromoneChannel.DangerTrail, DangerDecayPerSecond * dt);
+        DecayChannel(PheromoneChannel.HomeTrail, DecayPerSecond * dt);
+        DecayChannel(PheromoneChannel.FoodTrail, DecayPerSecond * dt);
+        DecayEnemyTrails(DecayPerSecond * dt);
     }
 
     private void DecayChannel(PheromoneChannel channel, float amount)

@@ -4,7 +4,7 @@ using SkiaSharp;
 
 public class Colony
 {
-    public const int StartingFood = 10;
+    public const int StartingFood = 50;
     public const float DefenseDecayPerSecond = 0.08f;
     public const float CombatDeathDefenseWeight = 0.35f;
     public const float CombatDeathOffenseWeight = 0.20f;

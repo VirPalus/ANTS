@@ -9,6 +9,7 @@ public class World
     public const float FoodPickupAmount = 0.1f;
 
     private const int InitialFoodCapacity = 256;
+    private int _foodVersion;
 
     private CellType[,] _cells;
     private float[,] _foodAmount;
@@ -41,6 +42,11 @@ public class World
     public int FoodCount
     {
         get { return _foodCount; }
+    }
+
+    public int FoodVersion
+    {
+        get { return _foodVersion; }
     }
 
     public Point[] FoodCells
@@ -560,6 +566,11 @@ public class World
         {
             return;
         }
+        // Can't place food on walls — ants can't reach those cells.
+        if (type == CellType.Food && oldType == CellType.Wall)
+        {
+            return;
+        }
         if (oldType == type)
         {
             return;
@@ -569,7 +580,7 @@ public class World
 
         if (type == CellType.Food)
         {
-            _foodAmount[x, y] = 0.5f;
+            _foodAmount[x, y] = 0.4f;
             AddFoodCell(x, y);
             return;
         }
@@ -628,6 +639,7 @@ public class World
         }
 
         _foodAmount[x, y] -= FoodPickupAmount;
+        _foodVersion++;
         if (_foodAmount[x, y] <= 0f)
         {
             _foodAmount[x, y] = 0f;
@@ -649,6 +661,7 @@ public class World
 
         _foodCells[_foodCount] = new Point(x, y);
         _foodCount++;
+        _foodVersion++;
     }
 
     private void RemoveFoodCell(int x, int y)

@@ -4,6 +4,7 @@ public static class MovementSystem
 {
     private const float BounceJitter = 0.9f;
     private const float StridePhasePerCell = 4f;
+    private const float DepositSuppressAfterBounce = 0.8f; // seconds of no pheromone after wall hit
 
     public static void Move(Ant ant, Colony colony, World world, float dt)
     {
@@ -25,7 +26,7 @@ public static class MovementSystem
 
         if (newX < 0f || newX >= world.Width || newY < 0f || newY >= world.Height)
         {
-            BounceOff(ant, world);
+            BounceOff(ant, colony, world);
             return;
         }
 
@@ -34,7 +35,7 @@ public static class MovementSystem
         // same cell we already know it isn't a wall (we're standing on it).
         if ((newCX != oldCX || newCY != oldCY) && world.IsWall(newCX, newCY))
         {
-            BounceOff(ant, world);
+            BounceOff(ant, colony, world);
             return;
         }
 
@@ -44,7 +45,7 @@ public static class MovementSystem
             bool canEnterToSteal = ant.CarryingFood == 0 && enemy != null && enemy.NestFood > 0;
             if (!canEnterToSteal)
             {
-                BounceOff(ant, world);
+                BounceOff(ant, colony, world);
                 return;
             }
         }
@@ -60,10 +61,16 @@ public static class MovementSystem
         }
     }
 
-    private static void BounceOff(Ant ant, World world)
+    private static void BounceOff(Ant ant, Colony colony, World world)
     {
         float r = world.NextRandomFloat();
         ant.Heading += (float)Math.PI + (r - 0.5f) * BounceJitter;
         ant.CachedSteerAngle = ant.Heading;
+
+        // Suppress pheromone deposits briefly after bouncing off a wall.
+        // This prevents creating false trail segments at wall edges that
+        // would mislead other ants. Reference: Softology's ant sim uses
+        // ~100 steps of no-deposit after wall collision.
+        ant.DepositCooldown = DepositSuppressAfterBounce;
     }
 }

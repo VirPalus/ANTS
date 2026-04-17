@@ -28,7 +28,7 @@ public static class UiTheme
     // frame around the playable space.
     public static readonly SKColor WallColor     = new SKColor(80, 80, 88);
     public static readonly SKColor WorldBorder   = new SKColor(80, 80, 88);
-    public static readonly SKColor GridLine      = new SKColor(48, 48, 52);
+    public static readonly SKColor GridLine      = new SKColor(0, 0, 0, 30);
 
     // --- borders ----------------------------------------------------------
     public static readonly SKColor BorderSubtle  = new SKColor(50, 50, 56);

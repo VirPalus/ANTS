@@ -20,7 +20,7 @@ using SkiaSharp;
 public static class MapLoader
 {
     private const float ColonyFoodDefaultAmount = 0f;   // food seeds only; colony pixels are flattened
-    private const float FoodDefaultAmount = 1f;         // green pixel -> full food deposit
+    private const float FoodDefaultAmount = 0.4f;        // 4 pickups per cell (4 × 0.1)
 
     // Shared team colors so every map uses the same red / blue for its
     // respective colonies regardless of the exact shade drawn in Paint.

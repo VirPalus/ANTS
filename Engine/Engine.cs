@@ -62,7 +62,6 @@ public partial class Engine : Form
 
     private static readonly SKColor FoodPheromoneColor = new SKColor(34, 197, 94);
     private static readonly SKColor EnemyPheromoneColor = new SKColor(239, 68, 68);
-    private static readonly SKColor DangerPheromoneColor = new SKColor(249, 115, 22);
 
     private static readonly Color[] ColonyColors = new Color[]
     {
@@ -115,6 +114,7 @@ public partial class Engine : Form
     private SKPaint _textPaint = null!;
     private SKPaint _antPaint = null!;
     private SKPicture _gridPicture = null!;
+    private SKPicture? _gridLinesPicture;  // separate picture for grid lines (zoom-dependent)
     private SKPicture _hudPicture = null!;
     private SKPicture _statsPicture = null!;
     private SKPicture _buttonsPicture = null!;
@@ -122,7 +122,7 @@ public partial class Engine : Form
 
     // Cached food picture — only rebuilt when food actually changes.
     private SKPicture? _foodPicture;
-    private int _foodPictureCachedCount = -1;
+    private int _foodPictureCachedVersion = -1;
 
     // Cached TopBar picture — only rebuilt when pause/speed/resize.
     private SKPicture? _topBarPicture;
@@ -166,7 +166,7 @@ public partial class Engine : Form
     // leaves rendering / panning / zooming responsive.
     private bool _paused;
     private double _speedMultiplier = 1.0;
-    private static readonly double[] SpeedChoices = new double[] { 0.5, 1.0, 2.0, 5.0 };
+    private static readonly double[] SpeedChoices = new double[] { 1.0, 2.0, 5.0, 10.0 };
 
     private SKColor _foodSkColor;
 
@@ -447,10 +447,46 @@ public partial class Engine : Form
             recordingCanvas.DrawRect(0, 0, gridWidth, gridHeight, worldBgPaint);
         }
 
-        // 2. Grid lines REMOVED — they added 322 line segments to the
-        //    picture replay, costing ~0.3ms/frame for purely cosmetic
-        //    lines that are invisible at normal zoom. The world bg
-        //    color and wall contrast provide enough visual structure.
+        // 2. Grid lines — recorded into a SEPARATE SKPicture so we can
+        //    skip the replay when zoomed out (lines invisible anyway).
+        //    All lines are batched into a single SKPath = 1 GPU draw call.
+        {
+            SKPictureRecorder gridLinesRecorder = new SKPictureRecorder();
+            SKCanvas glCanvas = gridLinesRecorder.BeginRecording(cullRect);
+
+            using (SKPaint linePaint = new SKPaint())
+            {
+                linePaint.Style = SKPaintStyle.Stroke;
+                linePaint.IsAntialias = false;
+                linePaint.Color = UiTheme.GridLine;
+                linePaint.StrokeWidth = 0;  // hairline = always 1 device pixel, any zoom
+
+                using (SKPath linePath = new SKPath())
+                {
+                    int w = _world.Width;
+                    int h = _world.Height;
+                    for (int x = 1; x < w; x++)
+                    {
+                        float px = x * CellSize;
+                        linePath.MoveTo(px, 0);
+                        linePath.LineTo(px, gridHeight);
+                    }
+                    for (int y = 1; y < h; y++)
+                    {
+                        float py = y * CellSize;
+                        linePath.MoveTo(0, py);
+                        linePath.LineTo(gridWidth, py);
+                    }
+                    if (linePath.PointCount > 0)
+                    {
+                        glCanvas.DrawPath(linePath, linePaint);
+                    }
+                }
+            }
+
+            Replace(ref _gridLinesPicture!, gridLinesRecorder.EndRecording());
+            gridLinesRecorder.Dispose();
+        }
 
         // 3. Walls — baked into the grid picture as a SINGLE batched
         //    SKPath instead of 2352 individual DrawRect calls. This is
@@ -571,7 +607,7 @@ public partial class Engine : Form
         // The world is no longer glued to the window centre. The
         // camera keeps whatever pan/zoom the user has, clamped so the
         // world doesn't slide entirely off-screen after a resize.
-        _camera.ClampToWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, ClampKeepVisiblePx);
+        // Camera clamp removed — pan and zoom are fully free.
 
         RebuildButtons();
     }
@@ -609,8 +645,6 @@ public partial class Engine : Form
         pheromoneButton.IsActive = () => _showPheromones;
         CacheButtonTextPosition(pheromoneButton);
         _buttons.Add(pheromoneButton);
-
-        // Mark buttons and topbar for re-cache after layout changes.
         _buttonsDirty = true;
         _topBarDirty = true;
 
@@ -658,7 +692,7 @@ public partial class Engine : Form
 
     private void RecordHudPicture()
     {
-        float hudW = 200f;
+        float hudW = 150f;
         float hudH = 84f;
         SKRect cullRect = new SKRect(0, 0, hudW + 20f, hudH + 20f);
 
@@ -684,28 +718,30 @@ public partial class Engine : Form
             float baseX = px + 10f;
             float baseY = py + 6f - hudText.FontMetrics.Ascent;
 
+            float valX = baseX + 50f;  // value column — tight but readable
+
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("FPS", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextStrong;
-            recordingCanvas.DrawText(_fps.ToString(), baseX + 80f, baseY, hudText);
+            recordingCanvas.DrawText(_fps.ToString(), valX, baseY, hudText);
 
             baseY += lineStep;
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("Frame", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_lastFrameMs.ToString("F2") + " ms", baseX + 80f, baseY, hudText);
+            recordingCanvas.DrawText(_lastFrameMs.ToString("F2") + " ms", valX, baseY, hudText);
 
             baseY += lineStep;
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("Sim", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_simStageMs.ToString("F2") + " ms", baseX + 80f, baseY, hudText);
+            recordingCanvas.DrawText(_simStageMs.ToString("F2") + " ms", valX, baseY, hudText);
 
             baseY += lineStep;
             hudText.Color = UiTheme.TextMuted;
             recordingCanvas.DrawText("Ants", baseX, baseY, hudText);
             hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_antStageMs.ToString("F3") + " ms", baseX + 80f, baseY, hudText);
+            recordingCanvas.DrawText(_antStageMs.ToString("F3") + " ms", valX, baseY, hudText);
         }
 
         Replace(ref _hudPicture!, recorder.EndRecording());
@@ -754,7 +790,7 @@ public partial class Engine : Form
     private void RecordFoodPicture()
     {
         int foodCount = _world.FoodCount;
-        _foodPictureCachedCount = foodCount;
+        _foodPictureCachedVersion = _world.FoodVersion;
 
         if (foodCount == 0)
         {
@@ -772,19 +808,23 @@ public partial class Engine : Form
         {
             foodPaint.Style = SKPaintStyle.Fill;
             foodPaint.IsAntialias = false;
-            foodPaint.Color = _foodSkColor;
 
-            _foodPath.Reset();
             Point[] foodCells = _world.FoodCells;
             for (int i = 0; i < foodCount; i++)
             {
                 int cellX = foodCells[i].X;
                 int cellY = foodCells[i].Y;
-                _foodPath.AddRect(new SKRect(
-                    cellX * CellSize, cellY * CellSize,
-                    (cellX + 1) * CellSize, (cellY + 1) * CellSize));
+                float amount = _world.GetFoodAmount(cellX, cellY);
+                // 4 pickup steps: 0.4=100%, 0.3=75%, 0.2=50%, 0.1=25%
+                // Map amount (0..0.4) to alpha (0..255) in 4 discrete steps.
+                int step = (int)(amount * 10f); // 4,3,2,1,0
+                if (step > 4) step = 4;
+                byte alpha = (byte)(step * 64); // 256,192,128,64,0
+                if (alpha < 64) alpha = 64; // min visible
+                if (step == 4) alpha = 255;
+                foodPaint.Color = _foodSkColor.WithAlpha(alpha);
+                rc.DrawRect(cellX * CellSize, cellY * CellSize, CellSize, CellSize, foodPaint);
             }
-            rc.DrawPath(_foodPath, foodPaint);
         }
 
         Replace(ref _foodPicture!, recorder.EndRecording());
@@ -797,6 +837,10 @@ public partial class Engine : Form
     private void RecordTopBarPicture()
     {
         int w = ClientSize.Width;
+        // Re-layout so active speed index and pause label refresh.
+        _topBar.Layout(w);
+        _topBar.CacheTextPositions(_textPaint, _textPaint.FontMetrics, -_textPaint.FontMetrics.Ascent + _textPaint.FontMetrics.Descent);
+
         SKRect cullRect = new SKRect(0, 0, w + 20, UiTopBar.BarHeight + 4);
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas rc = recorder.BeginRecording(cullRect);
@@ -896,9 +940,6 @@ public partial class Engine : Form
 
     private void OnSkMouseDown(object? sender, MouseEventArgs e)
     {
-        // Right mouse button now drives camera pan. It also pulls
-        // keyboard focus into the SK control so that WASD works
-        // immediately after clicking on the world.
         if (e.Button == MouseButtons.Right)
         {
             _isRightDragging = true;
@@ -913,7 +954,6 @@ public partial class Engine : Form
             return;
         }
 
-        // --- UI hit-test priority: overlay → topbar → buttons → world.
         if (_startOverlay.Visible)
         {
             _startOverlay.HandleClick(e.X, e.Y);
@@ -988,7 +1028,7 @@ public partial class Engine : Form
             _rightDragLastX = e.X;
             _rightDragLastY = e.Y;
             _camera.PanScreen(dx, dy);
-            _camera.ClampToWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, ClampKeepVisiblePx);
+            // Camera clamp removed — pan and zoom are fully free.
             return;
         }
 
@@ -1044,7 +1084,7 @@ public partial class Engine : Form
         }
 
         _camera.ZoomAt(e.X, e.Y, factor);
-        _camera.ClampToWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, ClampKeepVisiblePx);
+        // Camera clamp removed — pan and zoom are fully free.
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -1114,9 +1154,6 @@ public partial class Engine : Form
                 break;
         }
     }
-
-    // Apply WASD pan between frames. Uses wall-clock time so pan speed
-    // is consistent regardless of the current sim / render load.
     private void ApplyKeyboardPan()
     {
         long nowTicks = Stopwatch.GetTimestamp();
@@ -1140,7 +1177,7 @@ public partial class Engine : Form
 
         float step = KeyboardPanPxPerSecond * dt;
         _camera.PanScreen(dx * step, dy * step);
-        _camera.ClampToWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, ClampKeepVisiblePx);
+        // Camera clamp removed — pan and zoom are fully free.
     }
 
     // Convert a screen-space pixel to a world cell, undoing the
@@ -1252,15 +1289,6 @@ public partial class Engine : Form
         canvas.DrawAtlas(AntRenderer.BodyAtlasImage, _antBodySprites, _antBodyTransforms, _antPaint);
     }
 
-    // Zoomed-out mode: draw every ant as a round dot in ONE GPU call
-    // using DrawPoints with SKStrokeCap.Round. No sprite atlas, no
-    // transforms, no walking animation — just a single batched point
-    // draw per colony. This is the maximum possible optimisation for
-    // zoom-out: N ants = 1 GPU call with round circles.
-    //
-    // CODE LOCATION for dot-mode threshold:
-    //   OnSkPaintSurface → "bool drawAsDots = _camera.Zoom < 0.15f;"
-    //   (search for "drawAsDots" to find it)
     private void DrawAntDots(SKCanvas canvas, Colony colony)
     {
         List<Ant> antsList = colony.AntsList;
@@ -1352,10 +1380,9 @@ public partial class Engine : Form
         {
             for (int y = minCY; y <= maxCY; y++)
             {
-                float bestHome = 0f;
-                float bestFood = 0f;
-                float bestEnemy = 0f;
-                float bestDanger = 0f;
+                float Home = 0f;
+                float Food = 0f;
+                float Enemy = 0f;
                 byte homeR = 0;
                 byte homeG = 0;
                 byte homeB = 0;
@@ -1366,63 +1393,45 @@ public partial class Engine : Form
                     PheromoneGrid grid = colony.PheromoneGrid;
 
                     float h = grid.Get(PheromoneChannel.HomeTrail, x, y);
-                    if (h > bestHome)
+                    if (h > Home)
                     {
-                        bestHome = h;
+                        Home = h;
                         homeR = colony.CachedSkColor.Red;
                         homeG = colony.CachedSkColor.Green;
                         homeB = colony.CachedSkColor.Blue;
                     }
 
                     float f = grid.Get(PheromoneChannel.FoodTrail, x, y);
-                    if (f > bestFood)
+                    if (f > Food)
                     {
-                        bestFood = f;
+                        Food = f;
                     }
 
                     float e = grid.Get(PheromoneChannel.EnemyTrail, x, y);
-                    if (e > bestEnemy)
+                    if (e > Enemy)
                     {
-                        bestEnemy = e;
-                    }
-
-                    float d = grid.Get(PheromoneChannel.DangerTrail, x, y);
-                    if (d > bestDanger)
-                    {
-                        bestDanger = d;
+                        Enemy = e;
                     }
                 }
 
                 float pixelX = x * CellSize;
                 float pixelY = y * CellSize;
 
-                if (bestHome > PheromoneOverlayCutoff)
+                if (Home > PheromoneOverlayCutoff)
                 {
-                    byte alpha = ScaleIntensityToAlpha(bestHome);
+                    byte alpha = ScaleIntensityToAlpha(Home);
                     _fillPaint.Color = new SKColor(homeR, homeG, homeB, alpha);
                     canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
                 }
 
-                if (bestFood > PheromoneOverlayCutoff)
+                if (Food > PheromoneOverlayCutoff)
                 {
-                    byte alpha = ScaleIntensityToAlpha(bestFood);
+                    byte alpha = ScaleIntensityToAlpha(Food);
                     _fillPaint.Color = new SKColor(FoodPheromoneColor.Red, FoodPheromoneColor.Green, FoodPheromoneColor.Blue, alpha);
                     canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
                 }
 
-                if (bestEnemy > PheromoneOverlayCutoff)
-                {
-                    byte alpha = ScaleIntensityToAlpha(bestEnemy);
-                    _fillPaint.Color = new SKColor(EnemyPheromoneColor.Red, EnemyPheromoneColor.Green, EnemyPheromoneColor.Blue, alpha);
-                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
-                }
-
-                if (bestDanger > PheromoneOverlayCutoff)
-                {
-                    byte alpha = ScaleIntensityToAlpha(bestDanger);
-                    _fillPaint.Color = new SKColor(DangerPheromoneColor.Red, DangerPheromoneColor.Green, DangerPheromoneColor.Blue, alpha);
-                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
-                }
+                // EnemyTrail exists but is not visualized — too noisy.
             }
         }
     }
@@ -1720,8 +1729,7 @@ public partial class Engine : Form
         _camera.Apply(canvas);
 
         // Grid background + walls + border — single SKPicture replay.
-        // Walls are batched as one SKPath inside the picture (1 draw
-        // call instead of 2352 individual DrawRect). Grid lines removed.
+        // Walls are batched as one SKPath inside the picture (1 draw call).
         canvas.DrawPicture(_gridPicture);
 
         if (_showPheromones)
@@ -1729,10 +1737,9 @@ public partial class Engine : Form
             DrawPheromoneOverlay(canvas);
         }
 
-        // Food cells — cached as SKPicture, rebuilt only when count
-        // changes. Eliminates 613 AddRect per frame for static food.
-        int foodCount = _world.FoodCount;
-        if (foodCount != _foodPictureCachedCount)
+        // Food cells — cached as SKPicture, rebuilt when food changes
+        // (pickup, new food placed). Per-cell alpha shows remaining amount.
+        if (_world.FoodVersion != _foodPictureCachedVersion)
         {
             RecordFoodPicture();
         }
@@ -1754,6 +1761,14 @@ public partial class Engine : Form
             canvas.DrawPicture(_nestsPicture);
         }
 
+        // Grid lines — drawn OVER food/nests so they're visible everywhere.
+        // Separate SKPicture, only replayed when zoomed in enough (same
+        // threshold as ant dots → full shapes).
+        if (_gridLinesPicture != null && _camera.Zoom >= 0.5f)
+        {
+            canvas.DrawPicture(_gridLinesPicture);
+        }
+
         // Ants — skip timing overhead when no ants exist.
         if (colonyCount > 0)
         {
@@ -1766,7 +1781,7 @@ public partial class Engine : Form
             if (hasAnyAnts)
             {
                 long antStartTicks = Stopwatch.GetTimestamp();
-                bool drawAsDots = _camera.Zoom < 0.2f;
+                bool drawAsDots = _camera.Zoom < 0.5f;
                 for (int i = 0; i < colonyCount; i++)
                 {
                     Colony colony = colonies[i];
