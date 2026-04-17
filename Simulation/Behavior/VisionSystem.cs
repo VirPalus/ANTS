@@ -92,13 +92,7 @@ public static class VisionSystem
             sumY += ndy * falloff;
         }
     }
-
-    /// <summary>
-    /// Scans cells within the ant's forward vision cone for walls and map edges.
-    /// Each wall cell adds a repulsion vector (push AWAY from wall), with closer
-    /// walls pushing harder. This replaces the old 3x3 wall repulsion that was
-    /// in SensorSystem — now ants see walls at their full vision range.
-    /// </summary>
+    
     private static void AccumulateWalls(Ant ant, World world, float range,
         float cosHeading, float sinHeading, float cosHalfAngle, ref float sumX, ref float sumY)
     {

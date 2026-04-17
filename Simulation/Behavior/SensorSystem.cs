@@ -87,12 +87,6 @@ public static class SensorSystem
         ant.Role.OnLostTrail(ant, colony, world);
     }
 
-    /// <summary>
-    /// Determines if the ant should follow trails toward lower distance values.
-    /// ReturnHome on HomeTrail → yes (go toward nest = lower distance).
-    /// SeekFood on FoodTrail → yes (go toward food = lower distance).
-    /// Scouts on HomeTrail exploring → no (go away from nest = higher distance is fine).
-    /// </summary>
     private static bool ShouldFollowDecreasing(Ant ant, PheromoneChannel channel)
     {
         if (channel == PheromoneChannel.HomeTrail && ant.Goal.Type == GoalType.ReturnHome)
@@ -131,13 +125,6 @@ public static class SensorSystem
         bestAngle = rightAngle;
     }
 
-    /// <summary>
-    /// Samples the 3x3 area around a sensor point and returns a combined score
-    /// based on pheromone strength and distance-to-goal.
-    /// Score = strength * 0.35 + (1/(1+distance)) * 0.65
-    /// When wantDecreasing is true, lower distances score higher (going toward goal).
-    /// When false (exploring), we just use strength — distance doesn't matter.
-    /// </summary>
     private static float SampleCell(Ant ant, World world, Colony colony, PheromoneChannel channel, float angle, float distance, float densityPenalty, bool wantDecreasing)
     {
         float cos = (float)Math.Cos(angle);

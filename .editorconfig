@@ -277,7 +277,7 @@ dotnet_naming_rule.rule_13_type_parameters.symbols = type_parameters
 dotnet_naming_rule.rule_13_type_parameters.style = t_prefix_pascal_case
 
 # ========================================================================
-# DIAGNOSTIC SEVERITY — all major code quality rules as ERROR
+# DIAGNOSTIC SEVERITY — IDE rules (code style)
 # ========================================================================
 
 # Using directives
@@ -329,3 +329,24 @@ dotnet_diagnostic.IDE0065.severity = error
 
 # Unused using directive
 dotnet_diagnostic.CS8019.severity = warning
+
+# ========================================================================
+# DIAGNOSTIC SEVERITY — CA rules (architectural opinions)
+# Game/simulation pragmatism: performance en DTO-eenvoud boven strikte OOP
+# ========================================================================
+
+# CA1051: Do not declare visible instance fields
+# Public fields zijn bewust gekozen voor hot-path performance en DTO simplicity
+dotnet_diagnostic.CA1051.severity = none
+
+# CA1024: Use properties where appropriate
+# Methods zijn bewust gekozen waar ze bewust methods zijn
+dotnet_diagnostic.CA1024.severity = none
+
+# CA2227: Collection properties should be read only
+# In sim/game code worden collections vaak herbruikt (pooling)
+dotnet_diagnostic.CA2227.severity = none
+
+# CA1819: Properties should not return arrays
+# Arrays zijn fundamenteel voor simulatie-performance (geen List overhead)
+dotnet_diagnostic.CA1819.severity = none

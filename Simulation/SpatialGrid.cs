@@ -1,11 +1,6 @@
 namespace ANTS;
 using System.Collections.Generic;
 
-/// <summary>
-/// A flat-array spatial hash grid for fast O(nearby) ant lookups.
-/// Rebuilt once per tick from scratch (no incremental updates needed).
-/// Used by VisionSystem, CombatSystem, and CountEnemiesNearNest.
-/// </summary>
 public class SpatialGrid
 {
     public const int CellSize = 8;
@@ -43,10 +38,6 @@ public class SpatialGrid
         _entryCount = 0;
     }
 
-    /// <summary>
-    /// Rebuild the entire grid from all living ants in all colonies.
-    /// Called once per tick BEFORE any ant updates.
-    /// </summary>
     public void Rebuild(IReadOnlyList<Colony> colonies)
     {
         Array.Clear(_tempCounts, 0, _bucketCount);
@@ -125,10 +116,6 @@ public class SpatialGrid
         }
     }
 
-    /// <summary>
-    /// Query all ants within radius of (cx, cy). Calls the callback for each
-    /// matching ant. Uses no allocations.
-    /// </summary>
     public void QueryRadius(float cx, float cy, float radius, int excludeColonyId, QueryCallback callback, ref QueryState state)
     {
         float radiusSq = radius * radius;
@@ -168,11 +155,6 @@ public class SpatialGrid
             }
         }
     }
-
-    /// <summary>
-    /// Count ants within radius, excluding a specific colony. Stops early
-    /// if maxCount is reached.
-    /// </summary>
     public int CountInRadius(float cx, float cy, float radius, int excludeColonyId, int maxCount)
     {
         float radiusSq = radius * radius;
@@ -223,17 +205,9 @@ public class SpatialGrid
         return count;
     }
 
-    /// <summary>
-    /// Delegate for zero-allocation query callbacks.
-    /// dx, dy, distSq are pre-computed relative to the query center.
-    /// </summary>
     public delegate void QueryCallback(ref QueryState state, Ant ant, int colonyId, float dx, float dy, float distSq);
 }
 
-/// <summary>
-/// Mutable state struct passed through spatial queries to accumulate results
-/// without heap allocations. Each system fills only the fields it needs.
-/// </summary>
 public struct QueryState
 {
     public float SumX;

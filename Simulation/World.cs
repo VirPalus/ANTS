@@ -213,11 +213,7 @@ public class World
         }
         return _cells[x, y] == CellType.Wall;
     }
-
-    /// <summary>
-    /// Fast line-of-sight check using DDA ray march through the grid.
-    /// Returns true if no wall cell blocks the straight line from (x0,y0) to (x1,y1).
-    /// </summary>
+    
     public bool HasLineOfSight(float x0, float y0, float x1, float y1)
     {
         float dx = x1 - x0;
