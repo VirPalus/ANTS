@@ -1,22 +1,6 @@
 namespace ANTS;
 using SkiaSharp;
 
-// Simple 2D orthographic camera.
-//
-// World-space coordinates are render-pixels at Zoom=1 (so a cell at
-// (cx, cy) sits at world (cx * CellSize, cy * CellSize)). The camera
-// maps world-space to screen-space via:
-//
-//     screenX = worldX * Zoom + OffsetX
-//     screenY = worldY * Zoom + OffsetY
-//
-// and inversely:
-//
-//     worldX = (screenX - OffsetX) / Zoom
-//     worldY = (screenY - OffsetY) / Zoom
-//
-// Apply(canvas) installs that transform, so all subsequent world-space
-// drawing calls land in the correct screen place and scale.
 public class Camera
 {
     public const float MinZoom = 0.125f;
@@ -40,9 +24,6 @@ public class Camera
         Zoom = zoom;
     }
 
-    // Anchor zoom so the world point that's currently under (screenX,
-    // screenY) remains under the same screen pixel after zooming. This
-    // is the "zoom toward cursor" behaviour expected from map tools.
     public void ZoomAt(float screenX, float screenY, float factor)
     {
         float oldZoom = Zoom;
@@ -85,9 +66,6 @@ public class Camera
         canvas.Scale(Zoom, Zoom);
     }
 
-    // Center the given world-pixel rectangle in the given screen area
-    // and fit it with the zoom that just barely makes the whole world
-    // visible (subject to min/max). Used on startup and on "reset view".
     public void FitWorld(float worldPixelWidth, float worldPixelHeight, int screenWidth, int screenHeight, float margin)
     {
         if (worldPixelWidth <= 0 || worldPixelHeight <= 0 || screenWidth <= 0 || screenHeight <= 0)
@@ -114,10 +92,6 @@ public class Camera
         OffsetY = (screenHeight - worldPixelHeight * Zoom) / 2f;
     }
 
-    // Keep at least some of the world on screen so you can't fling it
-    // out into the void. The world is clamped so that its rectangle
-    // always overlaps the usable screen area by at least `keepVisible`
-    // pixels on every side.
     public void ClampToWorld(float worldPixelWidth, float worldPixelHeight, int screenWidth, int screenHeight, float keepVisible)
     {
         float renderedW = worldPixelWidth * Zoom;
@@ -127,14 +101,11 @@ public class Camera
         float minOffsetX;
         if (renderedW <= screenWidth)
         {
-            // World fits; keep it somewhere inside the viewport.
             maxOffsetX = screenWidth - keepVisible;
             minOffsetX = keepVisible - renderedW;
         }
         else
         {
-            // World bigger than viewport; at most one edge can leave
-            // the screen so long as the other still shows keepVisible.
             maxOffsetX = keepVisible;
             minOffsetX = screenWidth - renderedW - keepVisible;
         }

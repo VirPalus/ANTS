@@ -155,9 +155,6 @@ public class Colony
         }
     }
 
-    // 25 enemies = 50 HP/s damage → nest dead in 2s. Beyond this, the exact
-    // count is irrelevant — the nest is at maximum danger. Early-exit saves
-    // cycles in worst-case siege scenarios.
     public const int MaxEnemyCountForDanger = 25;
 
     private int CountEnemiesNearNest(World world)

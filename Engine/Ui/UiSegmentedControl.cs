@@ -1,13 +1,6 @@
 namespace ANTS;
 using SkiaSharp;
 
-// Horizontal group of connected toggle buttons (one active at a time),
-// styled to read as a single pill-shaped control -- like the speed
-// selector in the top bar (0.5x / 1x / 2x / 5x).
-//
-// PERF NOTE: SKRoundRect is safe here — this Draw is only called
-// inside cached SKPictures (topbar), not per-frame. AA is flipped on
-// for rounded rects and restored after to keep shared paints clean.
 public class UiSegmentedControl
 {
     public SKRect Bounds;
@@ -43,18 +36,15 @@ public class UiSegmentedControl
     {
         float radius = UiTheme.CornerMedium;
 
-        // Enable AA for smooth rounded corners, restore after.
         fillPaint.IsAntialias = true;
         borderPaint.IsAntialias = true;
 
-        // --- outer pill background ---
         fillPaint.Color = UiTheme.BgPanel;
         using (SKRoundRect outerRr = new SKRoundRect(Bounds, radius, radius))
         {
             canvas.DrawRoundRect(outerRr, fillPaint);
         }
 
-        // --- active segment highlight (inner rounded rect) ---
         if (ActiveIndex >= 0 && ActiveIndex < Labels.Length)
         {
             fillPaint.Color = UiTheme.BgPanelActive;
@@ -66,7 +56,6 @@ public class UiSegmentedControl
             }
         }
 
-        // --- outer pill border ---
         borderPaint.Color = UiTheme.BorderSubtle;
         borderPaint.StrokeWidth = UiTheme.BorderThin;
         using (SKRoundRect borderRr = new SKRoundRect(Bounds, radius, radius))
@@ -74,11 +63,9 @@ public class UiSegmentedControl
             canvas.DrawRoundRect(borderRr, borderPaint);
         }
 
-        // Restore AA off for shared paints.
         fillPaint.IsAntialias = false;
         borderPaint.IsAntialias = false;
 
-        // --- labels, centered per segment ---
         SKColor prevColor = textPaint.Color;
         SKFontMetrics metrics = textPaint.FontMetrics;
         float textHeight = -metrics.Ascent + metrics.Descent;

@@ -3,29 +3,24 @@ using System.Collections.Generic;
 
 public class RoleQuota
 {
-    // Founding: queen focuses on workers, almost all foragers.
     private const float FoundingScoutShare = 0.10f;
     private const float FoundingForagerShare = 0.90f;
 
-    // Peace: mostly foragers, tiny standing combatant force.
     private const float PeaceScoutShare = 0.10f;
     private const float PeaceForagerShare = 0.80f;
     private const float PeaceDefenderShare = 0.05f;
     private const float PeaceAttackerShare = 0.05f;
 
-    // Nest under attack: heavy defenders, still some attackers to counter.
     private const float DefenseScoutShare = 0.10f;
     private const float DefenseForagerShare = 0.40f;
     private const float DefenseDefenderShare = 0.30f;
     private const float DefenseAttackerShare = 0.20f;
 
-    // Going on the offensive: attackers lead, keep a reduced home guard.
     private const float OffenseScoutShare = 0.10f;
     private const float OffenseForagerShare = 0.40f;
     private const float OffenseDefenderShare = 0.20f;
     private const float OffenseAttackerShare = 0.30f;
 
-    // Hysteresis thresholds (on accumulated defense/offense signals).
     private const float DefenseBoostOnThreshold = 0.5f;
     private const float DefenseBoostOffThreshold = 0.2f;
     private const float OffenseBoostOnThreshold = 0.4f;
@@ -81,7 +76,6 @@ public class RoleQuota
 
         if (_defenseBoostActive && _offenseBoostActive)
         {
-            // Both fronts active: average the two combat postures.
             scoutTarget = DefenseScoutShare;
             foragerTarget = DefenseForagerShare;
             defenderTarget = (DefenseDefenderShare + OffenseDefenderShare) * 0.5f;
@@ -109,14 +103,10 @@ public class RoleQuota
             attackerTarget = PeaceAttackerShare;
         }
 
-        // Personality: each queen can lean up to ±5% from the base quota,
-        // reflecting her own preference, not a hard rule.
         ApplyWorkerBiasNudge(colony, ref scoutTarget, ref foragerTarget);
         ApplyCombatantBiasNudge(colony, ref defenderTarget, ref attackerTarget);
     }
 
-    // Bias range is 0.7..1.3 → lean span is ±0.6. Multiplier 0.0833 caps the
-    // nudge at roughly ±5 percentage points.
     private const float PersonalityNudgeScale = 0.0833f;
 
     private static void ApplyWorkerBiasNudge(Colony colony, ref float scoutTarget, ref float foragerTarget)
@@ -131,9 +121,6 @@ public class RoleQuota
 
     private static void ApplyCombatantBiasNudge(Colony colony, ref float defenderTarget, ref float attackerTarget)
     {
-        // Aggressive queen (bias > 1) leans toward attackers; cautious leans
-        // toward defenders. We use (Aggression - ThreatSensitivity) so that
-        // a high-threat queen also counter-balances toward defense.
         float lean = colony.Queen.AggressionBias - colony.Queen.ThreatSensitivity;
         float nudge = lean * PersonalityNudgeScale;
         if (nudge > defenderTarget) nudge = defenderTarget;
@@ -144,7 +131,6 @@ public class RoleQuota
 
     private void UpdateDefenseHysteresis(Colony colony)
     {
-        // Personality: threat-sensitive queens flip into defense sooner.
         float onT = DefenseBoostOnThreshold / colony.Queen.ThreatSensitivity;
         float offT = DefenseBoostOffThreshold / colony.Queen.ThreatSensitivity;
         if (colony.Defense > onT)
@@ -159,7 +145,6 @@ public class RoleQuota
 
     private void UpdateOffenseHysteresis(Colony colony)
     {
-        // Personality: aggressive queens flip into offense sooner.
         float onT = OffenseBoostOnThreshold / colony.Queen.AggressionBias;
         float offT = OffenseBoostOffThreshold / colony.Queen.AggressionBias;
         if (colony.Offense > onT)

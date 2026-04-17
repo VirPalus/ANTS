@@ -1,28 +1,17 @@
 namespace ANTS;
 using SkiaSharp;
 
-// A single rounded dark-theme button. All visual state comes from the
-// theme (no accent colour); hover / active differ only by value-step.
-// The same class handles push-buttons (Add Colony, Add Food) and
-// toggle-buttons (Pheromones on/off, Pause/Play) -- toggles just set
-// an IsActive predicate so the renderer can pick the "active" tile.
 public class UiButton
 {
     public Rectangle Bounds { get; }
     public string Label { get; set; }
 
-    // Optional predicate: when it returns true the button paints in
-    // its active state (lighter tile, brighter text). Null means a
-    // plain push-button.
     public Func<bool>? IsActive;
 
     public Action OnClick { get; }
 
-    // Hover is driven externally by the engine's mouse-move handler.
     public bool IsHovered;
 
-    // Cached text position, recomputed whenever the label or bounds
-    // change. The engine does this in CacheButtonTextPosition.
     public float TextBaselineX;
     public float TextBaselineY;
 
@@ -38,13 +27,10 @@ public class UiButton
         return Bounds.Contains(x, y);
     }
 
-    // Draw a single button onto the recording canvas. Uses the
-    // passed-in shared paints to avoid allocating per draw.
     public void Draw(SKCanvas canvas, SKPaint fillPaint, SKPaint borderPaint, SKPaint textPaint)
     {
         bool active = IsActive != null && IsActive();
 
-        // Tile colour: active > hovered > idle, same hue family.
         SKColor tile;
         if (active) tile = UiTheme.BgPanelActive;
         else if (IsHovered) tile = UiTheme.BgPanelHover;

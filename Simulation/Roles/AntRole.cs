@@ -10,14 +10,12 @@ public abstract class AntRole
     public float SensorInterval { get; protected set; }
     public float AutonomyMax { get; protected set; }
     public float ExplorationRate { get; protected set; }
-    public float GradientThreshold { get; protected set; }
     public float DensityPenalty { get; protected set; }
     public float ActiveDegradeChance { get; protected set; }
     public float ActiveDegradeFactor { get; protected set; }
     public float VisualScale { get; protected set; }
     public bool IsCombatant { get; protected set; }
 
-    // Vision range is always 2x sensor distance — ants see twice as far as they smell.
     public float VisionRange => SensorDistance * 2f;
     public float VisionInterval { get; protected set; }
     public int SpawnFoodCost { get; protected set; }
