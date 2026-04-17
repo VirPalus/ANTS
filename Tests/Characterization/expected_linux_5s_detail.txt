@@ -1,0 +1,25 @@
+# ANTS characterization harness
+# seed=42
+# map=01_open_field
+# seconds=5
+# world=200x120
+# colonies=2
+#
+t=0 sha256=7861a7405ccdadc39f33bb2ce609d8d46550e9423e4e54c476f9a649e40a9da5
+tick=0 simtime=0 foodcells=613 foodver=613 | c1 ants=0 scout=0 forager=0 def=0 att=0 nestFood=50 nestHP=10000 defense=0 offense=0 protR=800 carryingSum=0 sumX=0 sumY=0 sumH=0 alive=1 | c2 ants=0 scout=0 forager=0 def=0 att=0 nestFood=50 nestHP=10000 defense=0 offense=0 protR=800 carryingSum=0 sumX=0 sumY=0 sumH=0 alive=1
+
+t=60 sha256=1d8922d464727b1300a2b5a1564c968e61d14310f0b0ca8a4b5c20dde0803c74
+tick=60 simtime=999 foodcells=613 foodver=613 | c1 ants=1 scout=1 forager=0 def=0 att=0 nestFood=49 nestHP=10000 defense=0 offense=0 protR=867 carryingSum=0 sumX=2366 sumY=6493 sumH=774 alive=1 | c2 ants=1 scout=1 forager=0 def=0 att=0 nestFood=49 nestHP=10000 defense=0 offense=0 protR=852 carryingSum=0 sumX=18484 sumY=5760 sumH=-913 alive=1
+
+t=120 sha256=bdd1dc4f742750799ac689e95433255cecd4d564366f8bbd4ebc0df57162f466
+tick=120 simtime=1999 foodcells=613 foodver=613 | c1 ants=8 scout=1 forager=7 def=0 att=0 nestFood=42 nestHP=10000 defense=0 offense=0 protR=1386 carryingSum=0 sumX=16957 sumY=49548 sumH=11718 alive=1 | c2 ants=8 scout=1 forager=7 def=0 att=0 nestFood=42 nestHP=10000 defense=0 offense=0 protR=1354 carryingSum=0 sumX=144831 sumY=47780 sumH=7085 alive=1
+
+t=180 sha256=c8606c74f1e76bf102314bb615f2a6f63b69d2ed30e8daf787e1152d2834a8fc
+tick=180 simtime=2999 foodcells=613 foodver=613 | c1 ants=13 scout=2 forager=11 def=0 att=0 nestFood=37 nestHP=10000 defense=0 offense=0 protR=1849 carryingSum=0 sumX=27755 sumY=82237 sumH=12486 alive=1 | c2 ants=13 scout=2 forager=11 def=0 att=0 nestFood=37 nestHP=10000 defense=0 offense=0 protR=1897 carryingSum=0 sumX=235320 sumY=78428 sumH=895 alive=1
+
+t=240 sha256=858297461e03f97f19b8f3a6bd3c6cdc9c21b372ca8195e5dba9397281dfa2ba
+tick=240 simtime=3999 foodcells=613 foodver=613 | c1 ants=15 scout=2 forager=13 def=0 att=0 nestFood=35 nestHP=10000 defense=0 offense=0 protR=2136 carryingSum=0 sumX=30700 sumY=95514 sumH=-9143 alive=1 | c2 ants=15 scout=2 forager=13 def=0 att=0 nestFood=35 nestHP=10000 defense=0 offense=0 protR=2302 carryingSum=0 sumX=271964 sumY=91112 sumH=-1074 alive=1
+
+t=300 sha256=f7c390c971810bfb00fc8403d8efd39d8239160f8448fe95731e93fc8642ca5f
+tick=300 simtime=5000 foodcells=613 foodver=613 | c1 ants=16 scout=2 forager=14 def=0 att=0 nestFood=34 nestHP=10000 defense=0 offense=0 protR=2529 carryingSum=0 sumX=32415 sumY=101959 sumH=1223 alive=1 | c2 ants=16 scout=2 forager=14 def=0 att=0 nestFood=34 nestHP=10000 defense=0 offense=0 protR=2703 carryingSum=0 sumX=287694 sumY=98850 sumH=630 alive=1
+
