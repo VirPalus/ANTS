@@ -3,28 +3,28 @@ using SkiaSharp;
 
 public class Colony
 {
-    public const int StartingFood = 50;
-    public const float DefenseDecayPerSecond = 0.08f;
-    public const float CombatDeathDefenseWeight = 0.35f;
-    public const float CombatDeathOffenseWeight = 0.20f;
-    public const float EnemyContactDefenseWeight = 0.15f;
-    public const float DefenseScaleNormalizer = 3.0f;
-    public const float FoundingPeriodSeconds = 60f;
-    public const float OffenseDecayPerSecond = 0.02f;
-    public const float OffenseScaleNormalizer = 5.0f;
-    public const float CombatDeathDefenseRadius = 20f;
-    public const float CombatDeathDefenseRadiusSq = CombatDeathDefenseRadius * CombatDeathDefenseRadius;
-    public const float ProtectedRadiusBuffer = 4f;
-    public const float ProtectedRadiusMin = 8f;
-    public const float ProtectedRadiusMax = 80f;
-    public const float ProtectedRadiusSmoothing = 0.08f;
+    private const int StartingFood = 50;
+    private const float DefenseDecayPerSecond = 0.08f;
+    private const float CombatDeathDefenseWeight = 0.35f;
+    private const float CombatDeathOffenseWeight = 0.20f;
+    private const float EnemyContactDefenseWeight = 0.15f;
+    private const float DefenseScaleNormalizer = 3.0f;
+    private const float FoundingPeriodSeconds = 60f;
+    private const float OffenseDecayPerSecond = 0.02f;
+    private const float OffenseScaleNormalizer = 5.0f;
+    private const float CombatDeathDefenseRadius = 20f;
+    private const float CombatDeathDefenseRadiusSq = CombatDeathDefenseRadius * CombatDeathDefenseRadius;
+    private const float ProtectedRadiusBuffer = 4f;
+    private const float ProtectedRadiusMin = 8f;
+    private const float ProtectedRadiusMax = 80f;
+    private const float ProtectedRadiusSmoothing = 0.08f;
 
-    public const float NestMaxHealth = 100f;
-    public const float NestDamagePerEnemyPerSec = 2.0f;
-    public const float NestRegenPerSec = 2.0f;
-    public const float NestRegenDelaySeconds = 5f;
-    public const float NestAttackRadius = 4f;
-    public const float NestAttackRadiusSq = NestAttackRadius * NestAttackRadius;
+    private const float NestMaxHealth = 100f;
+    private const float NestDamagePerEnemyPerSec = 2.0f;
+    private const float NestRegenPerSec = 2.0f;
+    private const float NestRegenDelaySeconds = 5f;
+    private const float NestAttackRadius = 4f;
+    private const float NestAttackRadiusSq = NestAttackRadius * NestAttackRadius;
 
     public int Id { get; }
     public int NestX { get; }
@@ -154,7 +154,7 @@ public class Colony
         }
     }
 
-    public const int MaxEnemyCountForDanger = 25;
+    private const int MaxEnemyCountForDanger = 25;
 
     private int CountEnemiesNearNest(World world)
     {
