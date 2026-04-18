@@ -5,8 +5,11 @@
         "Browsable",
         "Coef",
         "Despawn",
+        "gedisposed",
+        "gefixt",
         "gridlijnen",
         "herbruikt",
+        "herschouwen",
         "Hwnd",
         "infintie",
         "initializers",
@@ -27,6 +30,7 @@
         "Skia",
         "ssin",
         "stabilises",
+        "strictere",
         "topbar"
     ]
 }
