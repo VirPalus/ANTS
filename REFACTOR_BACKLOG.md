@@ -93,3 +93,16 @@ References:
 - `Simulation/World.cs:372` — only call site, inside
   `ForgetEnemyTrailAboutDeadColony`.
 - `Simulation/World.cs:335-360` — `DespawnDeadColonies` call chain.
+
+## Post-refactor feature requests
+
+### Combat: rotate-to-face before attacking
+
+Current behavior: ants attack regardless of facing direction
+(can hit enemies at side/back).
+Desired behavior: ant must rotate to face enemy (enemy in vision cone)
+before committing to attack animation.
+Impact: harness digest changes (this is a gameplay tweak, not refactor).
+Effort: small feature, requires vision-check gate before CombatSystem
+attack trigger.
+Discovered: 2026-04-18 during FASE 7.3 visual testing.
