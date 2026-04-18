@@ -1133,9 +1133,9 @@ public partial class Engine : Form
 
             if (ant.LungeTimer > 0f)
             {
-                float t = ant.LungeTimer / CombatSystem.LungeDuration;
+                float t = ant.LungeTimer / CombatTuning.LungeDuration;
                 float offset = t > 0.5f ? (1f - t) * 2f : t * 2f;
-                float lungePixels = offset * CombatSystem.LungeDistance * CellSize;
+                float lungePixels = offset * CombatTuning.LungeDistance * CellSize;
                 centerX += ant.LungeDirX * lungePixels;
                 centerY += ant.LungeDirY * lungePixels;
             }

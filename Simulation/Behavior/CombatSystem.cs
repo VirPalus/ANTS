@@ -2,13 +2,6 @@ namespace ANTS;
 
 public static class CombatSystem
 {
-    private const float AttackRange = 1.6f;
-    private const float AttackRangeSq = AttackRange * AttackRange;
-    private const float AttackCooldownSeconds = 0.3f;
-    private const float EngagementHoldSeconds = 0.4f;
-    private const int AttackDamage = 1;
-    public const float LungeDuration = 0.15f;
-    public const float LungeDistance = 0.5f;
 
     public static void Tick(Ant ant, Colony colony, World world)
     {
@@ -20,20 +13,20 @@ public static class CombatSystem
         QueryState state = new QueryState();
         state.ClosestEnemy = null;
         state.ClosestEnemyColony = null;
-        state.ScratchScalar = AttackRangeSq;
+        state.ScratchScalar = CombatTuning.AttackRangeSq;
         state.Colonies = world.Colonies;
         state.World = world;
         state.QueryCenterX = ant.X;
         state.QueryCenterY = ant.Y;
 
-        world.SpatialGrid.QueryRadius(ant.X, ant.Y, AttackRange, colony.Id, CombatFindClosestCallback, ref state);
+        world.SpatialGrid.QueryRadius(ant.X, ant.Y, CombatTuning.AttackRange, colony.Id, CombatFindClosestCallback, ref state);
 
         if (state.ClosestEnemy == null)
         {
             return;
         }
 
-        ant.EngagementTimer = EngagementHoldSeconds;
+        ant.EngagementTimer = CombatTuning.EngagementHoldSeconds;
         ant.LastCombatTargetColonyId = state.ClosestEnemyColony!.Id;
         ant.DistanceFromEnemy = 0f;
         Ant closestEnemy = state.ClosestEnemy;
@@ -45,7 +38,7 @@ public static class CombatSystem
         }
 
         DamageTarget(closestEnemy, closestColony, world);
-        ant.AttackCooldown = AttackCooldownSeconds;
+        ant.AttackCooldown = CombatTuning.AttackCooldownSeconds;
         ant.InternalClock = 0f;
 
         float ldx = closestEnemy.X - ant.X;
@@ -61,13 +54,13 @@ public static class CombatSystem
             ant.LungeDirX = (float)Math.Cos(ant.Heading);
             ant.LungeDirY = (float)Math.Sin(ant.Heading);
         }
-        ant.LungeTimer = LungeDuration;
+        ant.LungeTimer = CombatTuning.LungeDuration;
         colony.PheromoneGrid.DepositEnemy(closestColony.Id, (int)ant.X, (int)ant.Y, 1.0f, 0f);
     }
 
     private static void DamageTarget(Ant target, Colony targetColony, World world)
     {
-        target.Health -= AttackDamage;
+        target.Health -= CombatTuning.AttackDamage;
         if (target.Health > 0)
         {
             return;
