@@ -97,7 +97,6 @@ public partial class Engine : Form
     private UiStartOverlay _startOverlay = null!;
     private SKPaint _titlePaint = null!;
     private SKPaint _sharedBorder = null!;
-    private SKPaint _smallTextPaint = null!;
     private SKPath _nestPath = null!;
     private SKPath _foodPath = null!;
     private SKRect[] _antBodySprites = Array.Empty<SKRect>();
@@ -161,12 +160,6 @@ public partial class Engine : Form
         _titlePaint.IsAntialias = true;
         _titlePaint.Color = UiTheme.TextStrong;
         _titlePaint.TextSize = UiTheme.FontDisplay;
-
-        _smallTextPaint = Own(new SKPaint());
-        _smallTextPaint.Style = SKPaintStyle.Fill;
-        _smallTextPaint.IsAntialias = true;
-        _smallTextPaint.Color = UiTheme.TextMuted;
-        _smallTextPaint.TextSize = UiTheme.FontSmall;
 
         _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
 
