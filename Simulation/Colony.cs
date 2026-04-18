@@ -3,29 +3,6 @@ using SkiaSharp;
 
 public class Colony
 {
-    private const int StartingFood = 50;
-    private const float DefenseDecayPerSecond = 0.08f;
-    private const float CombatDeathDefenseWeight = 0.35f;
-    private const float CombatDeathOffenseWeight = 0.20f;
-    private const float EnemyContactDefenseWeight = 0.15f;
-    private const float DefenseScaleNormalizer = 3.0f;
-    private const float FoundingPeriodSeconds = 60f;
-    private const float OffenseDecayPerSecond = 0.02f;
-    private const float OffenseScaleNormalizer = 5.0f;
-    private const float CombatDeathDefenseRadius = 20f;
-    private const float CombatDeathDefenseRadiusSq = CombatDeathDefenseRadius * CombatDeathDefenseRadius;
-    private const float ProtectedRadiusBuffer = 4f;
-    private const float ProtectedRadiusMin = 8f;
-    private const float ProtectedRadiusMax = 80f;
-    private const float ProtectedRadiusSmoothing = 0.08f;
-
-    private const float NestMaxHealth = 100f;
-    private const float NestDamagePerEnemyPerSec = 2.0f;
-    private const float NestRegenPerSec = 2.0f;
-    private const float NestRegenDelaySeconds = 5f;
-    private const float NestAttackRadius = 4f;
-    private const float NestAttackRadiusSq = NestAttackRadius * NestAttackRadius;
-
     public int Id { get; }
     public int NestX { get; }
     public int NestY { get; }
@@ -60,13 +37,13 @@ public class Colony
     }
     public float NestHealthFraction
     {
-        get { return NestHealth / NestMaxHealth; }
+        get { return NestHealth / ColonyTuning.NestMaxHealth; }
     }
     private float _timeSinceNestAttack;
     public float Age { get; private set; }
     public bool IsFounding
     {
-        get { return Age < FoundingPeriodSeconds; }
+        get { return Age < ColonyTuning.FoundingPeriodSeconds; }
     }
     private float _defenseRaw;
     private float _offenseRaw;
@@ -89,7 +66,7 @@ public class Colony
         Color = color;
         CachedSkColor = new SKColor(color.R, color.G, color.B, color.A);
         _ants = new List<Ant>();
-        NestFood = StartingFood;
+        NestFood = ColonyTuning.StartingFood;
         SpawnTimer = 0f;
         PheromoneGrid = new PheromoneGrid(worldWidth, worldHeight);
         Queen = new Queen(rng);
@@ -105,9 +82,9 @@ public class Colony
         Offense = 0f;
         TimeSinceDefenseSignal = 1000f;
         Age = 0f;
-        ProtectedRadius = ProtectedRadiusMin;
-        NestHealth = NestMaxHealth;
-        _timeSinceNestAttack = NestRegenDelaySeconds;
+        ProtectedRadius = ColonyTuning.ProtectedRadiusMin;
+        NestHealth = ColonyTuning.NestMaxHealth;
+        _timeSinceNestAttack = ColonyTuning.NestRegenDelaySeconds;
         DeathReason = "";
         IsAlive = true;
         DeathTime = 0f;
@@ -129,7 +106,7 @@ public class Colony
         int attackers = CountEnemiesNearNest(world);
         if (attackers > 0)
         {
-            NestHealth -= attackers * NestDamagePerEnemyPerSec * dt;
+            NestHealth -= attackers * ColonyTuning.NestDamagePerEnemyPerSec * dt;
             if (NestHealth < 0f)
             {
                 NestHealth = 0f;
@@ -139,28 +116,26 @@ public class Colony
         }
 
         _timeSinceNestAttack += dt;
-        if (_timeSinceNestAttack < NestRegenDelaySeconds)
+        if (_timeSinceNestAttack < ColonyTuning.NestRegenDelaySeconds)
         {
             return;
         }
-        if (NestHealth >= NestMaxHealth)
+        if (NestHealth >= ColonyTuning.NestMaxHealth)
         {
             return;
         }
-        NestHealth += NestRegenPerSec * dt;
-        if (NestHealth > NestMaxHealth)
+        NestHealth += ColonyTuning.NestRegenPerSec * dt;
+        if (NestHealth > ColonyTuning.NestMaxHealth)
         {
-            NestHealth = NestMaxHealth;
+            NestHealth = ColonyTuning.NestMaxHealth;
         }
     }
-
-    private const int MaxEnemyCountForDanger = 25;
 
     private int CountEnemiesNearNest(World world)
     {
         float nestCx = NestX + 0.5f;
         float nestCy = NestY + 0.5f;
-        return world.SpatialGrid.CountInRadius(nestCx, nestCy, NestAttackRadius, Id, MaxEnemyCountForDanger);
+        return world.SpatialGrid.CountInRadius(nestCx, nestCy, ColonyTuning.NestAttackRadius, Id, ColonyTuning.MaxEnemyCountForDanger);
     }
 
     public void UpdateProtectedRadius()
@@ -187,16 +162,16 @@ public class Colony
             }
         }
 
-        float targetRadius = (float)Math.Sqrt(maxDistSq) + ProtectedRadiusBuffer;
-        if (targetRadius < ProtectedRadiusMin)
+        float targetRadius = (float)Math.Sqrt(maxDistSq) + ColonyTuning.ProtectedRadiusBuffer;
+        if (targetRadius < ColonyTuning.ProtectedRadiusMin)
         {
-            targetRadius = ProtectedRadiusMin;
+            targetRadius = ColonyTuning.ProtectedRadiusMin;
         }
-        if (targetRadius > ProtectedRadiusMax)
+        if (targetRadius > ColonyTuning.ProtectedRadiusMax)
         {
-            targetRadius = ProtectedRadiusMax;
+            targetRadius = ColonyTuning.ProtectedRadiusMax;
         }
-        ProtectedRadius = ProtectedRadius * (1f - ProtectedRadiusSmoothing) + targetRadius * ProtectedRadiusSmoothing;
+        ProtectedRadius = ProtectedRadius * (1f - ColonyTuning.ProtectedRadiusSmoothing) + targetRadius * ColonyTuning.ProtectedRadiusSmoothing;
     }
 
     public void TickAge(float dt)
@@ -294,18 +269,18 @@ public class Colony
         float dx = deathX - (NestX + 0.5f);
         float dy = deathY - (NestY + 0.5f);
         float distSq = dx * dx + dy * dy;
-        if (distSq < CombatDeathDefenseRadiusSq)
+        if (distSq < ColonyTuning.CombatDeathDefenseRadiusSq)
         {
-            _defenseRaw += CombatDeathDefenseWeight;
+            _defenseRaw += ColonyTuning.CombatDeathDefenseWeight;
             TimeSinceDefenseSignal = 0f;
             return;
         }
-        _offenseRaw += CombatDeathOffenseWeight;
+        _offenseRaw += ColonyTuning.CombatDeathOffenseWeight;
     }
 
     public void RegisterDefenseSignal(float severity)
     {
-        _defenseRaw += EnemyContactDefenseWeight * severity;
+        _defenseRaw += ColonyTuning.EnemyContactDefenseWeight * severity;
         TimeSinceDefenseSignal = 0f;
     }
 
@@ -316,11 +291,11 @@ public class Colony
 
     public void UpdateSignals(float dt)
     {
-        _defenseRaw *= (float)Math.Exp(-DefenseDecayPerSecond * dt);
-        Defense = (float)Math.Tanh(_defenseRaw / DefenseScaleNormalizer);
+        _defenseRaw *= (float)Math.Exp(-ColonyTuning.DefenseDecayPerSecond * dt);
+        Defense = (float)Math.Tanh(_defenseRaw / ColonyTuning.DefenseScaleNormalizer);
 
-        _offenseRaw *= (float)Math.Exp(-OffenseDecayPerSecond * dt);
-        Offense = (float)Math.Tanh(_offenseRaw / OffenseScaleNormalizer);
+        _offenseRaw *= (float)Math.Exp(-ColonyTuning.OffenseDecayPerSecond * dt);
+        Offense = (float)Math.Tanh(_offenseRaw / ColonyTuning.OffenseScaleNormalizer);
 
         TimeSinceDefenseSignal += dt;
     }
