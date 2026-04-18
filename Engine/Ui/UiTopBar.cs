@@ -1,4 +1,5 @@
 namespace ANTS;
+using System.Globalization;
 using SkiaSharp;
 
 public class UiTopBar
@@ -132,8 +133,8 @@ public class UiTopBar
     {
         if (Math.Abs(speed - Math.Round(speed)) < 0.001)
         {
-            return ((int)Math.Round(speed)).ToString() + "x";
+            return ((int)Math.Round(speed)).ToString(CultureInfo.InvariantCulture) + "x";
         }
-        return speed.ToString("0.##") + "x";
+        return speed.ToString("0.##", CultureInfo.InvariantCulture) + "x";
     }
 }

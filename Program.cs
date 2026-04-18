@@ -1,12 +1,12 @@
 namespace ANTS;
 
-static class Program
+internal static class Program
 {
     /// <summary>
     ///  The main entry point for the application.
     /// </summary>
     [STAThread]
-    static void Main(string[] args)
+    private static void Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "--harness")
         {
@@ -17,7 +17,7 @@ static class Program
         RunGui();
     }
 
-    static void RunGui()
+    private static void RunGui()
     {
         ApplicationConfiguration.Initialize();
         Application.SetColorMode(SystemColorMode.System);

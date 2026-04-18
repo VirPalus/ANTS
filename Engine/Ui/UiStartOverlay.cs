@@ -14,7 +14,7 @@ public class UiStartOverlay : IDisposable
     }
 
     public List<Entry> Entries = new List<Entry>();
-    public int SelectedIndex = 0;
+    public int SelectedIndex;
     public bool Visible = true;
 
     public SKRect StartButtonBounds;
@@ -230,6 +230,7 @@ public class UiStartOverlay : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         for (int i = 0; i < Entries.Count; i++)
         {
             Entries[i].Bitmap?.Dispose();
@@ -252,7 +253,7 @@ public class UiStartOverlay : IDisposable
         {
             if (parts[i].Length > 0)
             {
-                parts[i] = char.ToUpper(parts[i][0]) + parts[i].Substring(1);
+                parts[i] = char.ToUpperInvariant(parts[i][0]) + parts[i].Substring(1);
             }
         }
         return string.Join(" ", parts);

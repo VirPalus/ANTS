@@ -156,7 +156,7 @@ public class RoleQuota
         }
     }
 
-    private AntRole PickByDeficit(Colony colony, float scoutTarget, float foragerTarget, float defenderTarget, float attackerTarget)
+    private static AntRole PickByDeficit(Colony colony, float scoutTarget, float foragerTarget, float defenderTarget, float attackerTarget)
     {
         int total = colony.Ants.Count;
         if (total == 0)
