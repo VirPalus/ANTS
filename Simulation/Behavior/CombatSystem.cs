@@ -20,7 +20,7 @@ public static class CombatSystem
         QueryState state = new QueryState();
         state.ClosestEnemy = null;
         state.ClosestEnemyColony = null;
-        state.ClosestCombatDistSq = AttackRangeSq;
+        state.ScratchScalar = AttackRangeSq;
         state.Colonies = world.Colonies;
         state.World = world;
         state.QueryCenterX = ant.X;
@@ -93,9 +93,9 @@ public static class CombatSystem
         {
             return;
         }
-        if (distSq < state.ClosestCombatDistSq)
+        if (distSq < state.ScratchScalar)
         {
-            state.ClosestCombatDistSq = distSq;
+            state.ScratchScalar = distSq;
             state.ClosestEnemy = target;
             IReadOnlyList<Colony> colonies = state.Colonies!;
             int count = colonies.Count;

@@ -216,7 +216,7 @@ public struct QueryState
 
     public Ant? ClosestEnemy;
     public Colony? ClosestEnemyColony;
-    public float ClosestCombatDistSq;
+    public float ScratchScalar;
 
     public IReadOnlyList<Colony>? Colonies;
 

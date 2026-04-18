@@ -192,7 +192,7 @@ public static class VisionSystem
             state.SumY = sumY;
             state.ClosestEnemyColonyId = closestId;
             state.ClosestDistSq = closestDistSq;
-            state.ClosestCombatDistSq = antWeight;
+            state.ScratchScalar = antWeight;
             state.World = world;
             state.QueryCenterX = ant.X;
             state.QueryCenterY = ant.Y;
@@ -229,7 +229,7 @@ public static class VisionSystem
             return;
         }
 
-        float weight = state.ClosestCombatDistSq;
+        float weight = state.ScratchScalar;
         float falloff = weight / (1f + dist);
         state.SumX += ndx * falloff;
         state.SumY += ndy * falloff;
