@@ -32,3 +32,29 @@ Observed incidents:
 
 Python-direct writes (bypass Edit tool, use `open(f, 'wb').write(...)`)
 do not trigger this — confirmed cleanly in FASE 1.2 across 11 files.
+
+## Deferred Decisions
+
+### Patrol enum value removal (2026-04-18)
+
+`GoalType.Patrol` appears dead at first glance but serves as UI state-tag
+for Attacker/Defender roles. The original audit (CODEBASE_AUDIT_REPORT.md
+§3) claimed "only the enum declaration" — this was stale; repo-wide grep
+finds 4 live consumers.
+
+Removing it requires either:
+
+(a) UI change accepting `"Explore"` label for non-foragers in the
+    info-panel (Engine.cs:1903 renders `ant.Goal.Type.ToString()`), or
+(b) refactor to separate logical-state (Goal) from UI-display-state
+    (role-label), so attacker/defender ants can keep a distinct
+    on-screen string without the enum value.
+
+Deferred until an explicit UI-modernization task. FASE 8.1 is marked
+SKIPPED in REFACTOR_PLAN.md.
+
+References:
+
+- `Simulation/Roles/AttackerRole.cs:48,50` — check-and-set.
+- `Simulation/Roles/DefenderRole.cs:53,55` — check-and-set.
+- `Engine/Engine.cs:1903` — `ant.Goal.Type.ToString()` info-panel display.

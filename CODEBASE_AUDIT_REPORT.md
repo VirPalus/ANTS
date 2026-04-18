@@ -126,7 +126,7 @@ Every item below was verified with a repo-wide grep; "callers" means static refe
 
 | Symbol | Location | Finding | Evidence |
 |---|---|---|---|
-| `GoalType.Patrol` | `Simulation/Goals/GoalType.cs:10` | Declared but never produced by any role's `UpdateGoal` and never consumed by any system. | Grep `GoalType.Patrol` → only the enum declaration. |
+| `GoalType.Patrol` | `Simulation/Goals/GoalType.cs:8` | **Live UI state-tag** (audit corrected 2026-04-18). Used in `AttackerRole.cs:48,50` and `DefenderRole.cs:53,55` as check-and-set for role-state. Displayed in info-panel via `ant.Goal.Type.ToString()` in `Engine.cs:1903`. **NOT to be deleted** without a UI-strategy refactor. | Repo-wide grep `GoalType.Patrol` → 4 live consumers (2 in AttackerRole, 2 in DefenderRole). |
 | `CellType.Nest` | `Simulation/CellType.cs` | Defined but never written to by any system after map load; map loader uses colony-seed cells, nest ownership is tracked via `_nestOwner`. Check if still read. | Needs a 2nd pass in FASE 2 (before deletion) — there is a read in `MovementSystem` for the wall-bounce logic; likely still live. **Do not delete until a characterization test confirms.** |
 | `PheromoneGrid.ClearEnemyTrailForTarget` | `Simulation/Pheromones/PheromoneGrid.cs:245` | Only one caller expected (on colony death). Verify it actually runs on `DespawnDeadColonies`. | To confirm in FASE 1b. |
 | Duplicate `_fillPaint.Style = Fill` | `Engine/Engine.cs:1833-1834` | One of the two is dead. | Visible. |

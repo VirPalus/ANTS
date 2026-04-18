@@ -226,7 +226,7 @@ All struct/class fields are `internal const`. No value changes.
 
 **Candidates.**
 
-- `GoalType.Patrol` — likely dead.
+- ~~`GoalType.Patrol`~~ **SKIPPED** — Patrol is not dead code (see audit §3, updated 2026-04-18). Used as UI state-tag in `AttackerRole`/`DefenderRole` + displayed via `Engine.cs:1903`. Requires separate UI-modernization decision, out of refactor scope.
 - `PheromoneGrid.ClearEnemyTrailForTarget` — verify caller; if none, delete.
 - `AntGoal` — if FASE 3 chose Option A (inline), delete the struct.
 
