@@ -20,7 +20,6 @@ public partial class Engine : Form
     private const float FoodGreenR = 34f / 255f;
     private const float FoodGreenG = 197f / 255f;
     private const float FoodGreenB = 94f / 255f;
-
     private const float PheromoneOverlayCutoff = 0.03f;
     private const float PheromoneOverlayMaxAlpha = 160f;
     private const int StatsPanelWidth = 260;
