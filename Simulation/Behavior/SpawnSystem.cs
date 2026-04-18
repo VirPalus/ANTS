@@ -2,14 +2,6 @@ namespace ANTS;
 
 public static class SpawnSystem
 {
-    private const float BaseSpawnInterval = 1.0f;
-    private const float MinSpawnInterval = 0.04f;
-    private const float MaxSpawnInterval = 5.0f;
-    private const float IdealFoodPerAnt = 1.5f;
-    private const float IntervalScaleFloor = 0.3f;
-    private const float SurplusRatioExponent = 1.6f;
-    private const float SurplusScaleGain = 1.5f;
-
     public static void Tick(Colony colony, World world, float dt)
     {
         colony.SpawnTimer -= dt;
@@ -51,36 +43,36 @@ public static class SpawnSystem
         float foodPerAnt;
         if (antCount == 0)
         {
-            foodPerAnt = IdealFoodPerAnt;
+            foodPerAnt = SpawnTuning.IdealFoodPerAnt;
         }
         else
         {
             foodPerAnt = (float)colony.NestFood / (float)antCount;
         }
 
-        float ratio = foodPerAnt / IdealFoodPerAnt;
+        float ratio = foodPerAnt / SpawnTuning.IdealFoodPerAnt;
 
-        float scale = IntervalScaleFloor + IntervalScaleFloor * ratio;
+        float scale = SpawnTuning.IntervalScaleFloor + SpawnTuning.IntervalScaleFloor * ratio;
 
         if (ratio > 1f)
         {
             float surplus = ratio - 1f;
-            scale += SurplusScaleGain * (float)Math.Pow(surplus, SurplusRatioExponent);
+            scale += SpawnTuning.SurplusScaleGain * (float)Math.Pow(surplus, SpawnTuning.SurplusRatioExponent);
         }
 
         if (scale <= 0.01f)
         {
-            return MaxSpawnInterval;
+            return SpawnTuning.MaxSpawnInterval;
         }
 
-        float interval = BaseSpawnInterval / scale;
-        if (interval < MinSpawnInterval)
+        float interval = SpawnTuning.BaseSpawnInterval / scale;
+        if (interval < SpawnTuning.MinSpawnInterval)
         {
-            interval = MinSpawnInterval;
+            interval = SpawnTuning.MinSpawnInterval;
         }
-        if (interval > MaxSpawnInterval)
+        if (interval > SpawnTuning.MaxSpawnInterval)
         {
-            interval = MaxSpawnInterval;
+            interval = SpawnTuning.MaxSpawnInterval;
         }
         return interval;
     }
