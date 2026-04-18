@@ -207,7 +207,7 @@ Engine/
 **Commits.**
 
 1. Move `SKPaint` allocations in `DrawSelectedAntInfoPanel` to `PaintCache`.
-2. Pre-build `UiLineChart` paints on the instance (currently allocated per `Draw` call, which lives inside a cached `SKPicture` — acceptable but now made explicit).
+2. ~~Pre-build `UiLineChart` paints~~ **SKIPPED** — UiLineChart has 0 callers in codebase (discovered 2026-04-18 during FASE 6.2 scope-report). Premature to optimize paints for a class that isn't used. See REFACTOR_BACKLOG.md "Dead code candidates" for FASE 8.5 evaluation: either delete UiLineChart entirely, or wire up a caller first (fps graph, stats overlay) then optimize.
 3. Replace `SteeringSystem.NormalizeAngle` while-loop with `Math.IEEERemainder(angle, 2π)`. **Verify with harness** — the mathematical result is equivalent; any drift indicates a bug in the while-loop that callers relied on.
 4. Combine topbar + HUD + stats replay into one combined `SKPicture` to hit the 10-16 GPU-call budget. **Behavior-identical** because SKPicture replay is order-preserving.
 5. Document every remaining deliberate rule-breaker in a one-line code comment at the call site (this is the ONLY place comments survive), e.g. `// perf-rule-5 exempt: inside cached SKPicture`.

@@ -134,6 +134,26 @@ Impact: removes last `CombatTuning` dependency from `Engine.cs`.
 Risk: L (part of FASE 4 extraction work anyway).
 Discovered: 2026-04-18 during FASE 7.3 scope-report.
 
+## Dead code candidates (for FASE 8 follow-up)
+
+### UiLineChart (Engine/Ui/UiLineChart.cs)
+
+Status: declared, never instantiated. Full grep-audit shows 0 external
+references (no `new UiLineChart(`, no field declarations, no method
+params of this type).
+
+Historical: added 2026-04-17 in commit 5975c2a "new ui" along with
+the Engine/Ui/ folder. Never wired up to any caller since.
+
+Resolution options (decision needed before FASE 8 sweep):
+
+(a) Delete UiLineChart.cs entirely — clean up unused code
+(b) Wire up a caller (fps graph, colony stats overlay, performance
+    overlay) - then FASE 6.2 becomes relevant again for paints
+    pre-build
+
+Discovered: 2026-04-18 during FASE 6.2 scope-report.
+
 ## Post-refactor feature requests
 
 ### Combat: rotate-to-face before attacking
