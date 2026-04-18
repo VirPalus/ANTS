@@ -50,9 +50,9 @@ public class DefenderRole : AntRole
 
     public override void UpdateGoal(Ant ant, Colony colony, World world)
     {
-        if (ant.Goal.Type != GoalType.Patrol)
+        if (ant.Goal != GoalType.Patrol)
         {
-            ant.Goal = new AntGoal(GoalType.Patrol);
+            ant.Goal = GoalType.Patrol;
         }
     }
 

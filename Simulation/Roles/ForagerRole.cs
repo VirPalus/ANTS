@@ -48,21 +48,21 @@ public class ForagerRole : AntRole
 
     public override void UpdateGoal(Ant ant, Colony colony, World world)
     {
-        if (ant.CarryingFood > 0 && ant.Goal.Type != GoalType.ReturnHome)
+        if (ant.CarryingFood > 0 && ant.Goal != GoalType.ReturnHome)
         {
-            ant.Goal = new AntGoal(GoalType.ReturnHome);
+            ant.Goal = GoalType.ReturnHome;
             return;
         }
 
-        if (ant.CarryingFood == 0 && ant.Goal.Type == GoalType.ReturnHome)
+        if (ant.CarryingFood == 0 && ant.Goal == GoalType.ReturnHome)
         {
-            ant.Goal = new AntGoal(GoalType.SeekFood);
+            ant.Goal = GoalType.SeekFood;
         }
     }
 
     public override PheromoneChannel GetFollowChannel(Ant ant)
     {
-        if (ant.Goal.Type == GoalType.ReturnHome)
+        if (ant.Goal == GoalType.ReturnHome)
         {
             return PheromoneChannel.HomeTrail;
         }
@@ -71,7 +71,7 @@ public class ForagerRole : AntRole
 
     public override PheromoneChannel GetDepositChannel(Ant ant)
     {
-        if (ant.Goal.Type == GoalType.ReturnHome)
+        if (ant.Goal == GoalType.ReturnHome)
         {
             return PheromoneChannel.FoodTrail;
         }
@@ -92,7 +92,7 @@ public class ForagerRole : AntRole
             ant.DistanceFromFoodSource = 0f;
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
-            ant.Goal = new AntGoal(GoalType.ReturnHome);
+            ant.Goal = GoalType.ReturnHome;
         }
     }
 
@@ -104,7 +104,7 @@ public class ForagerRole : AntRole
             ant.CarryingFood = 0;
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
-            ant.Goal = new AntGoal(GoalType.SeekFood);
+            ant.Goal = GoalType.SeekFood;
         }
     }
 
@@ -120,16 +120,16 @@ public class ForagerRole : AntRole
             ant.DistanceFromFoodSource = 0f;
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
-            ant.Goal = new AntGoal(GoalType.ReturnHome);
+            ant.Goal = GoalType.ReturnHome;
         }
     }
 
     public override void OnLostTrail(Ant ant, Colony colony, World world)
     {
-        if (ant.CarryingFood == 0 && ant.Goal.Type == GoalType.SeekFood)
+        if (ant.CarryingFood == 0 && ant.Goal == GoalType.SeekFood)
         {
             ant.Role = ScoutRole.Instance;
-            ant.Goal = new AntGoal(GoalType.Explore);
+            ant.Goal = GoalType.Explore;
         }
     }
 }

@@ -1900,7 +1900,7 @@ public partial class Engine : Form
         textPaint.TextSize = 12f;
         textPaint.Color = new SKColor(200, 200, 210);
 
-        DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Goal", ant.Goal.Type.ToString());
+        DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Goal", ant.Goal.ToString());
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Health", $"{ant.Health} / {Ant.DefaultHealth}");
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Food", ant.CarryingFood > 0 ? $"{ant.CarryingFood}" : "-");
         DrawInfoLine(canvas, textPaint, x, valX, ref y, lineH, "Speed", $"{ant.Role.MaxSpeed:F1} c/s");

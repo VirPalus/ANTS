@@ -23,7 +23,7 @@ public static class SensorSystem
 
         bool wantDecreasing = ShouldFollowDecreasing(ant, followChannel);
 
-        bool suppressExploration = ant.CarryingFood > 0 && ant.Goal.Type == GoalType.ReturnHome;
+        bool suppressExploration = ant.CarryingFood > 0 && ant.Goal == GoalType.ReturnHome;
         if (!suppressExploration)
         {
             float explorationRoll = world.NextRandomFloat();
@@ -68,7 +68,7 @@ public static class SensorSystem
         float wanderNoise = (world.NextRandomFloat() - 0.5f) * WanderNoiseRange;
         float fallbackAngle = ant.Heading + wanderNoise;
 
-        if (ant.CarryingFood > 0 && ant.Goal.Type == GoalType.ReturnHome)
+        if (ant.CarryingFood > 0 && ant.Goal == GoalType.ReturnHome)
         {
             float dxNest = (colony.NestX + 0.5f) - ant.X;
             float dyNest = (colony.NestY + 0.5f) - ant.Y;
@@ -89,11 +89,11 @@ public static class SensorSystem
 
     private static bool ShouldFollowDecreasing(Ant ant, PheromoneChannel channel)
     {
-        if (channel == PheromoneChannel.HomeTrail && ant.Goal.Type == GoalType.ReturnHome)
+        if (channel == PheromoneChannel.HomeTrail && ant.Goal == GoalType.ReturnHome)
         {
             return true;
         }
-        if (channel == PheromoneChannel.FoodTrail && ant.Goal.Type == GoalType.SeekFood)
+        if (channel == PheromoneChannel.FoodTrail && ant.Goal == GoalType.SeekFood)
         {
             return true;
         }

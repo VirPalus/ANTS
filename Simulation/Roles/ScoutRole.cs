@@ -55,7 +55,7 @@ public class ScoutRole : AntRole
         if (ant.CarryingFood > 0)
         {
             ant.Role = ForagerRole.Instance;
-            ant.Goal = new AntGoal(GoalType.ReturnHome);
+            ant.Goal = GoalType.ReturnHome;
             return;
         }
 
@@ -71,7 +71,7 @@ public class ScoutRole : AntRole
                 if (v > FoodTrailDetectThreshold)
                 {
                     ant.Role = ForagerRole.Instance;
-                    ant.Goal = new AntGoal(GoalType.SeekFood);
+                    ant.Goal = GoalType.SeekFood;
                     return;
                 }
             }
@@ -99,7 +99,7 @@ public class ScoutRole : AntRole
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
             ant.Role = ForagerRole.Instance;
-            ant.Goal = new AntGoal(GoalType.ReturnHome);
+            ant.Goal = GoalType.ReturnHome;
         }
     }
 
@@ -117,7 +117,7 @@ public class ScoutRole : AntRole
             ant.InternalClock = 0f;
             ant.Heading += (float)Math.PI;
             ant.Role = ForagerRole.Instance;
-            ant.Goal = new AntGoal(GoalType.ReturnHome);
+            ant.Goal = GoalType.ReturnHome;
         }
     }
 

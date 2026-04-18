@@ -32,7 +32,7 @@ public class Ant
     public float LungeDirY;
 
     public AntRole Role;
-    public AntGoal Goal;
+    public GoalType Goal;
 
     public Ant(float x, float y, float heading, AntRole role)
     {
@@ -61,6 +61,6 @@ public class Ant
         LungeDirX = 0f;
         LungeDirY = 0f;
         Role = role;
-        Goal = new AntGoal(GoalType.Explore);
+        Goal = GoalType.Explore;
     }
 }
