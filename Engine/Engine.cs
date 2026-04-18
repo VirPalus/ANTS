@@ -338,6 +338,7 @@ public partial class Engine : Form
 
     private void RecordGridPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
         int gridWidth = _world.Width * CellSize;
         int gridHeight = _world.Height * CellSize;
         const int Margin = 16;
@@ -573,6 +574,7 @@ public partial class Engine : Form
 
     private void RecordHudPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
         float hudW = 150f;
         float hudH = 84f;
         SKRect cullRect = new SKRect(0, 0, hudW + 20f, hudH + 20f);
@@ -630,6 +632,7 @@ public partial class Engine : Form
 
     private void RecordButtonsPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
         int w = ClientSize.Width;
         int h = ClientSize.Height;
         SKRect cullRect = new SKRect(0, 0, w + 20, h + 20);
@@ -648,6 +651,7 @@ public partial class Engine : Form
 
     private void RecordStatsPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
 
         SKRect cullRect = new SKRect(0, 0, ClientSize.Width + 20, ClientSize.Height + 20);
         SKPictureRecorder recorder = new SKPictureRecorder();
@@ -661,6 +665,7 @@ public partial class Engine : Form
 
     private void RecordFoodPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
         int foodCount = _world.FoodCount;
         _foodPictureCachedVersion = _world.FoodVersion;
 
@@ -703,6 +708,7 @@ public partial class Engine : Form
 
     private void RecordTopBarPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
         int w = ClientSize.Width;
         _topBar.Layout(w);
         _topBar.CacheTextPositions(_sharedText, _sharedText.FontMetrics, -_sharedText.FontMetrics.Ascent + _sharedText.FontMetrics.Descent);
@@ -719,6 +725,7 @@ public partial class Engine : Form
     }
     private void RecordNestsPicture()
     {
+        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
         IReadOnlyList<Colony> colonies = _world.Colonies;
         int colonyCount = colonies.Count;
         _nestsPictureCachedCount = colonyCount;

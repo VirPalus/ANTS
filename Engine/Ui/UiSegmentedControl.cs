@@ -40,6 +40,7 @@ public class UiSegmentedControl
         borderPaint.IsAntialias = true;
 
         fillPaint.Color = UiTheme.BgPanel;
+        // perf-rule-5 exempt: Draw runs inside RecordTopBarPicture (cached until speed change)
         using (SKRoundRect outerRr = new SKRoundRect(Bounds, radius, radius))
         {
             canvas.DrawRoundRect(outerRr, fillPaint);
@@ -50,6 +51,7 @@ public class UiSegmentedControl
             fillPaint.Color = UiTheme.BgPanelActive;
             SKRect seg = GetSegmentRect(ActiveIndex);
             seg.Inflate(-2f, -2f);
+            // perf-rule-5 exempt: inside cached topbar SKPicture
             using (SKRoundRect activeRr = new SKRoundRect(seg, radius - 2f, radius - 2f))
             {
                 canvas.DrawRoundRect(activeRr, fillPaint);
@@ -58,6 +60,7 @@ public class UiSegmentedControl
 
         borderPaint.Color = UiTheme.BorderSubtle;
         borderPaint.StrokeWidth = UiTheme.BorderThin;
+        // perf-rule-5 exempt: inside cached topbar SKPicture
         using (SKRoundRect borderRr = new SKRoundRect(Bounds, radius, radius))
         {
             canvas.DrawRoundRect(borderRr, borderPaint);

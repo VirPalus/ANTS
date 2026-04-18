@@ -5,6 +5,7 @@ public static class UiPanel
 {
     public static void Draw(SKCanvas canvas, SKPaint fillPaint, float x, float y, float w, float h, float radius)
     {
+        // perf-rule-5 exempt: UiPanel only drawn inside SKPicture recorders (HUD / StatsCard)
         using SKRoundRect rr = new SKRoundRect(new SKRect(x, y, x + w, y + h), radius, radius);
         fillPaint.IsAntialias = true;
         canvas.DrawRoundRect(rr, fillPaint);
@@ -14,6 +15,7 @@ public static class UiPanel
     public static void DrawWithBorder(SKCanvas canvas, SKPaint fillPaint, SKPaint borderPaint, float x, float y, float w, float h, float radius)
     {
         SKRect rect = new SKRect(x, y, x + w, y + h);
+        // perf-rule-5 exempt: DrawWithBorder only called inside SKPictureRecorder blocks
         using SKRoundRect rr = new SKRoundRect(rect, radius, radius);
         fillPaint.IsAntialias = true;
         borderPaint.IsAntialias = true;

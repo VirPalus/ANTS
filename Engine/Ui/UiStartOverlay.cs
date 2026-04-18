@@ -180,6 +180,7 @@ public class UiStartOverlay : IDisposable
             bool selected = (i == SelectedIndex);
 
             fillPaint.Color = selected ? UiTheme.BgPanelActive : UiTheme.BgPanel;
+            // perf-rule-5 exempt: start overlay is pre-sim screen, hidden once user picks (never active in hot path)
             SKRoundRect rr = new SKRoundRect(card, UiTheme.CornerMedium, UiTheme.CornerMedium);
             canvas.DrawRoundRect(rr, fillPaint);
 
@@ -211,6 +212,7 @@ public class UiStartOverlay : IDisposable
 
         bool canStart = (SelectedIndex >= 0 && SelectedIndex < Entries.Count);
         fillPaint.Color = canStart ? UiTheme.BgPanelActive : UiTheme.BgPanel;
+        // perf-rule-5 exempt: start-button drawn only while start overlay is visible (pre-sim only)
         SKRoundRect sbRr = new SKRoundRect(StartButtonBounds, UiTheme.CornerLarge, UiTheme.CornerLarge);
         canvas.DrawRoundRect(sbRr, fillPaint);
         borderPaint.Color = canStart ? UiTheme.BorderStrong : UiTheme.BorderSubtle;

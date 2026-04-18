@@ -45,6 +45,7 @@ public static class UiTheme
     public const float FontTitle    = 22f;
     public const float FontDisplay  = 34f;
 
+    // perf-rule-8 exempt: factory only invoked inside RecordHudPicture (one-time alloc per HUD rebuild)
     public static SKPaint NewFillPaint(SKColor color)
     {
         SKPaint p = new SKPaint();
@@ -54,6 +55,7 @@ public static class UiTheme
         return p;
     }
 
+    // perf-rule-8 exempt: factory only invoked inside RecordHudPicture (one-time alloc per HUD rebuild)
     public static SKPaint NewStrokePaint(SKColor color, float width)
     {
         SKPaint p = new SKPaint();

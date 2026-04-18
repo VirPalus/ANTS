@@ -43,6 +43,7 @@ public class UiButton
 
         fillPaint.Color = tile;
         SKRect rect = new SKRect(rx, ry, rx + rw, ry + rh);
+        // perf-rule-5 exempt: Draw runs inside RecordButtonsPicture (cached until hover/click)
         using SKRoundRect rr = new SKRoundRect(rect, UiTheme.CornerMedium, UiTheme.CornerMedium);
         fillPaint.IsAntialias = true;
         borderPaint.IsAntialias = true;
