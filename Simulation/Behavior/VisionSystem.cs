@@ -2,7 +2,6 @@ namespace ANTS;
 
 public static class VisionSystem
 {
-    private const float StrengthNormalizer = 2.0f;
 
     public static void Scan(Ant ant, Colony colony, World world)
     {
@@ -49,7 +48,7 @@ public static class VisionSystem
         }
 
         ant.VisionSteerAngle = (float)Math.Atan2(sumY, sumX);
-        float strength = magnitude / StrengthNormalizer;
+        float strength = magnitude / VisionTuning.StrengthNormalizer;
         if (strength > 1f)
         {
             strength = 1f;
@@ -100,7 +99,6 @@ public static class VisionSystem
         int cy = (int)ant.Y;
         float rangeSq = range * range;
 
-        const float WallRepulsionWeight = 3.0f;
 
         for (int dy = -scanRadius; dy <= scanRadius; dy++)
         {
@@ -131,7 +129,7 @@ public static class VisionSystem
                 float dot = ndx * cosHeading + ndy * sinHeading;
                 if (dot < cosHalfAngle) continue;
 
-                float falloff = WallRepulsionWeight / (1f + dist * dist);
+                float falloff = VisionTuning.WallRepulsionWeight / (1f + dist * dist);
                 sumX -= ndx * falloff;
                 sumY -= ndy * falloff;
             }
