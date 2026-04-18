@@ -9,6 +9,8 @@
 
 ## FASE 0 — Tooling & characterization harness
 
+**Status.** ✅ DONE (sub-phases 0.1–0.7 + 0.A–0.D + 0.A.1 all landed).
+
 **Goal.** Make refactor safe. Before a single line of business logic is touched, lock down determinism and style.
 
 **Deliverables.**
@@ -33,6 +35,8 @@
 
 ## FASE 1 — Housekeeping (zero-risk)
 
+**Status.** ✅ DONE (1.1 duplicate `_fillPaint.Style` removed, 1.2 redundant using removed, 1.3–1.4 prose-comment strip across all directories).
+
 **Goal.** Remove all prose comments and trivial dead statements. Fix the things that are obviously wrong.
 
 **Commits (each one file or one family).**
@@ -56,6 +60,29 @@
 **Test strategy.** After each commit: (a) `dotnet build` must succeed; (b) the FASE-0 harness digest must match `expected.txt` byte-for-byte; (c) `dotnet format --verify-no-changes` must exit zero.
 
 **Rollback.** Per-commit revert; zero downstream dependencies.
+
+---
+
+## FASE 1.5 — Pre-existing CA/IDE warnings cleanup (retrospective)
+
+**Status.** ✅ DONE (2026-04-18). Tussenfase tussen FASE 1 en FASE 3, ontstaan nadat strictere `.editorconfig` uit FASE 0 9 pre-existing analyzer warnings zichtbaar maakte die de build niet blokkeerden maar de 0-warning gate (verlangd voor latere FASEs) wel vuil hielden.
+
+**Goal.** Ruim 9 pre-existing CA/IDE warnings op zonder gedragsverandering, zodat `dotnet build -c Debug` naar 0 warnings gaat en blijft.
+
+**Scope (per warning).**
+
+- CA1805, CA1816, CA1304 in `Engine/Ui/UiStartOverlay.cs` (default-value init, `Dispose` SuppressFinalize, `char.ToUpperInvariant`).
+- CA1305 × 2 in `Engine/Ui/UiTopBar.cs` (`CultureInfo.InvariantCulture` op twee `ToString`-calls).
+- IDE0040 × 3 in `Program.cs` (`internal` op class, `private` op `Main` en `RunGui`).
+- CA1822 in `Simulation/Roles/RoleQuota.cs` (`PickByDeficit` → `static`).
+
+**Files touched.** 4 bestanden; alles aanpassingen binnen bestaande methodes, geen API-wijziging.
+
+**Risk.** L. Pure compiler/analyzer-clean-up; IL-effect beperkt tot `internal`/`private` toegankelijkheid en `static` invocation; harness-gedekt.
+
+**Test strategy.** `dotnet build -c Debug` = 0 warnings / 0 errors. Harness digest identiek aan baselines.
+
+**Rollback.** Per-commit revert.
 
 ---
 
@@ -84,17 +111,18 @@
 
 ## FASE 3 — Naming & encapsulation
 
+**Status.** ✅ DONE (3.1, 3.2, 3.4 landed; 3.3 satisfied via FASE 8.3 inline-collapse).
+
 **Goal.** Tighten the contract surface without moving behavior.
 
 **Commits (each atomic).**
 
-1. `Simulation/Colony.cs`: downgrade implementation-detail constants to `private const` (`MaxEnemyCountForDanger`, defense/offense thresholds, nest-regen rates). Any external read becomes a method or computed property (`IsInDangerPosture()`, …). Keep behavior.
-2. `Simulation/SpatialGrid.cs`: rename `QueryState.ClosestCombatDistSq` → `ScratchScalar`; update every consumer (`CombatSystem`, `VisionSystem`).
-3. `Simulation/Goals/AntGoal.cs`: resolve the over-abstraction. Two options — decide in the PR review:
-   - **Option A (collapse):** inline `AntGoal` into `Ant.Goal` of type `GoalType`.
+1. ✅ `Simulation/Colony.cs`: downgrade implementation-detail constants to `private const` (`MaxEnemyCountForDanger`, defense/offense thresholds, nest-regen rates). Any external read becomes a method or computed property (`IsInDangerPosture()`, …). Keep behavior.
+2. ✅ `Simulation/SpatialGrid.cs`: rename `QueryState.ClosestCombatDistSq` → `ScratchScalar`; update every consumer (`CombatSystem`, `VisionSystem`).
+3. ✅ (via FASE 8.3) `Simulation/Goals/AntGoal.cs`: resolved via **Option A (collapse)** — `AntGoal` struct deleted, `Ant.Goal` is now a bare `GoalType`. Two options were considered:
+   - **Option A (collapse):** inline `AntGoal` into `Ant.Goal` of type `GoalType`. ← chosen
    - **Option B (enrich):** add real fields (`TargetX`, `TargetY`, `Deadline`) used by at least two roles. Only if we agree it will be used in a later, non-refactor phase.
-   - **Default: Option A**, since we are behavior-neutral and `AntGoal` currently adds nothing.
-4. `Engine/Engine.cs`: rename paints by ownership, e.g. `_sharedFill`, `_sharedStroke`, `_sharedText` — readers cannot currently tell which paints are shared vs per-owner.
+4. ✅ `Engine/Engine.cs`: rename paints by ownership, e.g. `_sharedFill`, `_sharedStroke`, `_sharedText` — readers cannot currently tell which paints are shared vs per-owner.
 
 **Files touched.** Scoped per commit; no system boundary moves.
 
@@ -183,6 +211,23 @@ Engine/
 3. Replace `SteeringSystem.NormalizeAngle` while-loop with `Math.IEEERemainder(angle, 2π)`. **Verify with harness** — the mathematical result is equivalent; any drift indicates a bug in the while-loop that callers relied on.
 4. Combine topbar + HUD + stats replay into one combined `SKPicture` to hit the 10-16 GPU-call budget. **Behavior-identical** because SKPicture replay is order-preserving.
 5. Document every remaining deliberate rule-breaker in a one-line code comment at the call site (this is the ONLY place comments survive), e.g. `// perf-rule-5 exempt: inside cached SKPicture`.
+6. **FASE 6.6 — Pheromone overlay performance optimization (NEW).**
+   Context: tijdens testen rond FASE 7.1 ontdekt dat met de pheromone-overlay AAN de fps van ~2000+ naar ~70 zakt (~96 % drop). Dit is een echte bottleneck in de render-path die gefixt moet worden zonder visueel resultaat te wijzigen.
+   Scope (mogelijk — profiling-driven; niet alles hoeft te landen):
+   - Profiling-based root-cause analyse (welke draw-calls / allocations zijn de hotspot).
+   - `SKPicture`-caching van de pheromone-layer (rebuild alleen op dirty tick).
+   - Dirty-flag-based partial updates (alleen gewijzigde cellen re-rasteren).
+   - Tile-based rendering (screen-space tiles, cache per tile).
+   - Lower-resolution overlay texture (bilinear upsample bij display).
+   Invariants:
+   - Visueel resultaat: **identiek** (zelfde pixels per frame) — check met screenshot-diff.
+   - Harness digest: **byte-identiek** (simulation-logic ongewijzigd; dit is puur rendering).
+   Test strategy:
+   - Before/after fps-metingen met overlay aan én uit (rapporteer getallen in commit).
+   - Visuele pixel-diff op minstens één referentie-frame.
+   - Harness digest 3× byte-identiek op alle drie de baselines.
+   Risk. **M** — rendering-surface, maar strict visueel-identiek criterium + harness-gate beschermen gedrag.
+   Rollback. Per-commit revert; geïsoleerd in overlay-rendering.
 
 **Files touched.** `Engine/*`, `Simulation/Behavior/SteeringSystem.cs`.
 
@@ -198,9 +243,11 @@ Engine/
 
 **Goal.** Every tuning constant lives in one place per system.
 
+**Status.** 7.1 ✅ DONE (2026-04-18); 7.2–7.5 pending.
+
 **Commits.**
 
-1. `Simulation/Behavior/SensorTuning.cs` — collects `ForwardBias`, `TurnMargin`, `SampleRadius`, `LostHomingWeight`, `StrengthWeight`, `DistanceWeight`.
+1. ✅ `Simulation/Behavior/SensorTuning.cs` — collects `ForwardBias`, `TurnMargin`, `SampleRadius`, `LostHomingWeight`, `StrengthWeight`, `DistanceWeight`. Stochastic constants stay in `SensorSystem.cs` (deferred; scope = fixed-sensor scoring weights).
 2. `Simulation/Behavior/VisionTuning.cs` — cone widths, blend weights.
 3. `Simulation/Behavior/CombatTuning.cs` — `AttackRange`, `AttackCooldownSeconds`, etc.
 4. `Simulation/Behavior/SpawnTuning.cs` — `BaseSpawnInterval`, `IdealFoodPerAnt`, …
@@ -220,6 +267,8 @@ All struct/class fields are `internal const`. No value changes.
 
 ## FASE 8 — Dead-code sweep
 
+**Status.** ✅ DONE (8.1 skipped + documented, 8.2 skipped + documented, 8.3 landed, 8.4 landed).
+
 **Goal.** Remove what is proven unused after FASES 0-7 settle.
 
 **Rule.** A symbol may be deleted only if: (a) repo-wide grep (case-sensitive, whole-word) shows zero references; (b) the build stays green after deletion; (c) the harness digest stays byte-identical.
@@ -228,7 +277,8 @@ All struct/class fields are `internal const`. No value changes.
 
 - ~~`GoalType.Patrol`~~ **SKIPPED** — Patrol is not dead code (see audit §3, updated 2026-04-18). Used as UI state-tag in `AttackerRole`/`DefenderRole` + displayed via `Engine.cs:1903`. Requires separate UI-modernization decision, out of refactor scope.
 - ~~`PheromoneGrid.ClearEnemyTrailForTarget`~~ **SKIPPED** — live cleanup method (see audit §3, updated 2026-04-18). Called on colony death from `World.cs:372` via `DespawnDeadColonies` → `ForgetEnemyTrailAboutDeadColony`. Removing it would leak memory in per-enemy dictionaries and drift the harness digest.
-- `AntGoal` — if FASE 3 chose Option A (inline), delete the struct.
+- ✅ `AntGoal` — FASE 3 koos Option A (inline); struct gesloopt, `Ant.Goal` is nu direct `GoalType`. (FASE 8.3, 2026-04-18.)
+- ✅ **FASE 8.4 — `_smallTextPaint` dead field** (2026-04-18, retrospectief gedocumenteerd). `Engine/Engine.cs` bevatte een `SKPaint _smallTextPaint` field dat gedeclareerd, geïnitialiseerd én gedisposed werd, maar nergens gelezen. Ontdekt tijdens de FASE 3.4 scope-audit. Verwijderd (decl + init-blok); geen callers, harness digest byte-identiek, 0 warnings.
 
 **Files touched.** The affected types only.
 
@@ -261,6 +311,24 @@ All struct/class fields are `internal const`. No value changes.
 - **5 before 6:** performance fixes land after the API shape stabilises.
 - **6 before 7:** perf-rule enforcement may surface more magic numbers.
 - **7 before 8:** dead-code sweep only makes sense when everything else is consolidated.
+
+## Remaining work order (as of 2026-04-18)
+
+Done: FASE 0, 1, 1.5, 3 (3.1/3.2/3.3-via-8.3/3.4), 7.1, 8 (8.1 skip, 8.2 skip, 8.3, 8.4).
+
+Upcoming, in execution order:
+
+1. **FASE 7.2** — `VisionTuning.cs` extraction.
+2. **FASE 7.3** — `CombatTuning.cs` extraction.
+3. **FASE 7.4** — `SpawnTuning.cs` extraction.
+4. **FASE 7.5** — `Colony.Tuning.cs` extraction.
+5. **FASE 6.2** — `UiLineChart` paint allocation cleanup.
+6. **FASE 6.3** — replace `SteeringSystem.NormalizeAngle` while-loop with `Math.IEEERemainder`.
+7. **FASE 6.5** — one-line comments documenting deliberate perf-rule exemptions.
+8. **FASE 6.6 (NEW)** — pheromone overlay performance optimization (96 % fps-drop fix; visueel-identiek, harness-identiek).
+9. **STOP for evaluation** — herschouwen of FASE 2, 4, 5, 9 nog in huidige vorm nodig zijn of dat de scope moet wijzigen.
+
+FASE 2 (docs), FASE 4 (Engine split), FASE 5 (PheromoneGrid unify) en FASE 9 (CHANGES.md) staan voorlopig op hold tot de bovenstaande evaluatie.
 
 ## What is explicitly OUT OF SCOPE
 
