@@ -1,5 +1,4 @@
 namespace ANTS;
-using System.Collections.Generic;
 
 public class SpatialGrid
 {

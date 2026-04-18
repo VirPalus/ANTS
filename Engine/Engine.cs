@@ -1828,7 +1828,6 @@ public partial class Engine : Form
             ax - (float)Math.Cos(heading + arrowSpread) * arrowHeadLen,
             ay - (float)Math.Sin(heading + arrowSpread) * arrowHeadLen, _fillPaint);
         _fillPaint.Style = SKPaintStyle.Fill;
-        _fillPaint.Style = SKPaintStyle.Fill;
         _fillPaint.StrokeWidth = 0f;
         _fillPaint.StrokeCap = SKStrokeCap.Butt;
         _fillPaint.IsAntialias = false;
