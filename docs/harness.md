@@ -26,6 +26,28 @@ Of met expliciete parameters:
 dotnet run -- --harness seed=42 map=01_open_field seconds=60
 ```
 
+### Linux / sandbox runbook
+
+De productie-csproj target `net10.0-windows` — `dotnet run` lukt op Linux alleen als `Microsoft.WindowsDesktop.App` geïnstalleerd is (wat op Linux niet kan). Workaround:
+
+1. Build Debug op Linux: `dotnet build -c Debug -p:EnableWindowsTargeting=true`.
+2. Exec de DLL met een `net10.0`-only runtimeconfig:
+   ```
+   cd bin/Debug/net10.0-windows
+   cat > harness.runtimeconfig.json <<'EOF'
+   { "runtimeOptions": { "tfm": "net10.0",
+       "framework": { "name": "Microsoft.NETCore.App", "version": "10.0.0" } } }
+   EOF
+   dotnet exec --runtimeconfig harness.runtimeconfig.json ANTS.dll \
+       --harness seed=42 map=01_open_field seconds=5 out=/tmp/actual.txt
+   ```
+3. `SkiaSharp` vereist een native Linux `.so`. De `net10.0-windows` target restored die niet. Copy uit de nupkg:
+   ```
+   cp ~/.nuget/packages/skiasharp/2.88.8/runtimes/linux-x64/native/libSkiaSharp.so \
+      bin/Debug/net10.0-windows/
+   ```
+   Zonder deze stap faalt de harness met `SkiaSharp.SKAbstractManagedStream` TypeInitializationException.
+
 ## Output
 
 Twee bestanden in `bin\Debug\net10.0-windows\CharacterizationOutput\` (of waar het exe
@@ -65,6 +87,26 @@ fc /b bin\Debug\net10.0-windows\CharacterizationOutput\actual.txt Tests\Characte
 
 `fc /b` moet "no differences encountered" melden. Zo niet: de refactor heeft gedrag
 veranderd en moet gereverteerd worden.
+
+## Pre-commit hook
+
+`.githooks/pre-commit` draait een 5-seconden harness-run en blokkeert de commit als de digest divergeert van `Tests/Characterization/expected_<platform>_5s.txt`. Activeren per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+Op Linux/macOS is `+x` bit al gezet. Op Windows binnen Git Bash werkt het identiek; in andere shells kan git de hook genegeerd laten — controleer `core.filemode` en laad de repo opnieuw indien nodig.
+
+De hook is intentioneel de **snelle** gate (5 s sim-tijd, ~100 ms wall-clock op Linux x64). De volledige 60-seconden baseline (`expected_linux.txt` / `expected_windows.txt`) is voor post-commit / CI verificatie.
+
+Bij mismatch toont de hook een diff van de eerste 30 regels en annuleert de commit. Als de gedragsverandering intentioneel is, regenereer de baseline met:
+
+```
+dotnet run -- --harness seed=42 map=01_open_field seconds=5 out=Tests/Characterization/expected_<platform>_5s.txt
+```
+
+en commit de nieuwe fixture in dezelfde commit als de gedragsverandering.
 
 ## Wat in de digest zit (per colony, gesorteerd op `Id`)
 

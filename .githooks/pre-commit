@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ANTS pre-commit hook — 5-second characterization harness digest gate.
+# Blocks the commit if behaviour drifts from the platform baseline in
+# Tests/Characterization/expected_<platform>_5s.txt.
+#
+# Activation (one-time per clone):  git config core.hooksPath .githooks
+
+set -e
+
+REPO="$(git rev-parse --show-toplevel)"
+cd "$REPO"
+
+case "$(uname -s 2>/dev/null || echo Unknown)" in
+    MINGW*|MSYS*|CYGWIN*) EXPECTED="Tests/Characterization/expected_windows_5s.txt" ;;
+    Linux*)               EXPECTED="Tests/Characterization/expected_linux_5s.txt" ;;
+    *) echo "[pre-commit] unknown platform, skipping harness gate"; exit 0 ;;
+esac
+
+if [ ! -f "$EXPECTED" ]; then
+    echo "[pre-commit] missing baseline: $EXPECTED"
+    echo "[pre-commit] generate it first, commit it, then retry."
+    exit 1
+fi
+
+OUT="$(mktemp -u /tmp/ants-hook-XXXX).txt"
+DET="${OUT%.txt}_detail.txt"
+trap 'rm -f "$OUT" "$DET"' EXIT
+
+echo "[pre-commit] dotnet build -c Debug ..."
+dotnet build -c Debug --nologo -v:q > /dev/null
+
+echo "[pre-commit] harness seconds=5 ..."
+dotnet run -c Debug --no-build -- --harness seed=42 map=01_open_field seconds=5 out="$OUT" > /dev/null
+
+if diff -q "$OUT" "$EXPECTED" > /dev/null; then
+    echo "[pre-commit] harness OK (5s digest byte-identical to $EXPECTED)"
+else
+    echo "[pre-commit] HARNESS DIGEST MISMATCH — commit blocked"
+    diff "$OUT" "$EXPECTED" | head -30
+    echo ""
+    echo "[pre-commit] Either revert the behaviour change, or regenerate the baseline:"
+    echo "    dotnet run -- --harness seed=42 map=01_open_field seconds=5 out=$EXPECTED"
+    exit 1
+fi
