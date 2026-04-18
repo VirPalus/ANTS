@@ -33,7 +33,7 @@ Observed incidents:
 Python-direct writes (bypass Edit tool, use `open(f, 'wb').write(...)`)
 do not trigger this — confirmed cleanly in FASE 1.2 across 11 files.
 
-### FUSE truncation variant (2026-04-18)
+### FUSE truncation variant (2026-04-18) — 4 incidents observed
 
 Tijdens FASE 8.1 docs-update ontdekt: Edit-tool op
 `CODEBASE_AUDIT_REPORT.md` en `REFACTOR_PLAN.md` truncateerde files tot
@@ -43,15 +43,71 @@ FUSE-bug: geen NUL-padding, maar trailing truncation.
 
 Detection signal: post-Edit `wc -c` matches BEFORE-edit size exactly
 (niet de verwachte new size). Verifieer altijd `wc -c` matches
-expected delta.
+expected delta. Additional detection: file tail ends mid-word or
+without trailing newline.
 
-Mitigation: zelfde Python-direct write recipe
-(`open(f, 'wb').write(data)`).
+Scope has escalated through 4 incidents; the failure is not limited
+to the main agent's Edit tool.
 
-Observed incidents:
+**Affected write-paths (all truncate on large markdown):**
+
+- Main agent `Edit` / `Write` tool targeting FUSE-mount paths.
+- Sub-agent `Edit` / `Write` tool targeting Windows-style paths
+  (`C:\\Users\\...\\ANTS`) — those paths route through the same
+  FUSE mount; NTFS-safety assumption is false.
+- `git checkout -- <file>` — checkout-time write through FUSE can
+  also truncate. This was not observed before the 4th incident.
+
+**Safe write-path (proven):**
+
+- Bash shell tool writing via Python `open(f, 'wb').write(data)`.
+
+**Preventive rules (cumulative):**
+
+1. (2026-04-18, after 3rd incident) Voor markdown files >5 KB gebruik
+   **Python-direct write VOORAF**, niet als recovery. Edit-tool is
+   consistent onbetrouwbaar op grote markdown files op dit FUSE mount.
+2. (2026-04-18, after 4th incident) **Sub-agents that write to
+   Windows-style paths are NOT safe** for this repo — those paths
+   resolve through the FUSE mount. Do not delegate docs-edits on
+   large markdown files to sub-agents; do them inline via the bash
+   shell tool.
+3. (2026-04-18, after 4th incident) **`git checkout` is NOT a safe
+   recovery** for FUSE-truncated files — the checkout itself can
+   truncate the working-tree write. Use `git cat-file blob HEAD:<file>`
+   to read from the object store (bypasses FUSE write-path), apply
+   edits in memory, and write back via Python-direct.
+
+**Recovery workflow (canonical):**
+
+```
+1. git cat-file blob HEAD:<file> > /tmp/<file>.head
+2. Apply edits in Python (string-replace on known anchors)
+3. open(f, 'wb').write(data.encode('utf-8'))   # via bash shell tool
+   (NOT Edit/Write, NOT sub-agents, NOT git checkout)
+4. 5-point verify: size delta matches expected, NUL count == 0,
+   tail byte-dump reasonable, grep anchors present, git diff --stat
+```
+
+**Observed incidents:**
 
 - 2026-04-18 FASE 8.1 docs: `CODEBASE_AUDIT_REPORT.md` +
   `REFACTOR_PLAN.md` truncated during Edit-tool call.
+- 2026-04-18 plan-update commit: `REFACTOR_PLAN.md` truncated
+  (recovered via `.git/index` backup + `git read-tree`).
+- 2026-04-18 FASE 6.2 skip docs-commit: `REFACTOR_PLAN.md` +
+  `REFACTOR_BACKLOG.md` **both files truncated simultaneously** in
+  the same Edit-tool call sequence. Recovery: `git show HEAD:<file>`
+  → Python-direct re-apply.
+- 2026-04-18 FASE 6.3 docs-commit preparation (double failure mode):
+  (i) sub-agent via `Edit` / `Write` tool targeting Windows-style
+  paths truncated `REFACTOR_PLAN.md` + `REFACTOR_BACKLOG.md`
+  simultaneously; the sub-agent assumed NTFS but the paths route
+  through the FUSE mount. (ii) follow-up `git checkout -- <file>`
+  *also* truncated the working-tree write — first time this
+  failure mode was observed. Recovery:
+  `git cat-file blob HEAD:<file>` (object store, bypasses FUSE
+  write) → Python-direct re-apply via bash.
 
 ## Deferred Decisions
 
@@ -113,6 +169,64 @@ References:
 - `Simulation/World.cs:372` — only call site, inside
   `ForgetEnemyTrailAboutDeadColony`.
 - `Simulation/World.cs:335-360` — `DespawnDeadColonies` call chain.
+
+### FASE 6.3 skip — NormalizeAngle rewrite (2026-04-18)
+
+Pre-flight comparison of 3 variants over 10020 inputs in range
+`[-3π, 3π]`:
+
+| Variant                       | Identical | Drift   |
+|-------------------------------|-----------|---------|
+| (a) while-loop (baseline)     | —         | —       |
+| (b) `Math.IEEERemainder`      | 33.65%    | 66.35%  |
+| (c) float-only `MathF.Round`  | 99.92%    | 0.08%   |
+
+Drift sources:
+
+- Float→double→float roundtrip (Bron A, ~1 ULP per wrap).
+- Banker's rounding at `±π` boundary (Bron B, ~2π flip).
+- Baseline asymmetry at `-π` (pre-existing bug, see next entry).
+
+Decision: SKIP per Mario's zero-drift policy. No bit-exact O(1)
+alternative exists that matches current baseline.
+
+Reopen conditions:
+
+- If baseline update becomes acceptable (non-refactor phase).
+- If a bit-exact alternative is found.
+- If perf profiling proves `NormalizeAngle` is hot path (currently
+  0-1 iterations per call, not hot).
+
+## Algorithmic precision notes
+
+### Pre-existing -π asymmetry in NormalizeAngle (2026-04-18)
+
+Current `NormalizeAngle` implementation has asymmetric behavior at
+the `-π` boundary:
+
+- `NormalizeAngle(+π_float)` → `-π_float` (expected wrap).
+- `NormalizeAngle(-π_float)` → `+π_float` (UNEXPECTED — should stay
+  at `-π`).
+
+Root cause: the while-loop uses `Math.PI` (double) in the `<`
+comparison. When input is `-(float)π`, implicit float→double
+promotion gives `-3.14159274...`, which is strictly less than
+`-Math.PI` (`-3.14159265...`), triggering an `a += 2π` iteration
+and producing `+π_float` instead of staying at `-π_float`.
+
+This means `NormalizeAngle`'s output range is effectively `(-π, +π]`
+rather than `[-π, +π]` as documented.
+
+Baseline includes this asymmetry in its digest. Any fix (use
+`MathF.PI` everywhere, or use `<=` instead of `<`) would drift the
+baseline.
+
+Deferred to FASE FUTURE (non-refactor bug-fix phase where baseline
+update is acceptable). Not urgent — asymmetry is invisible to
+gameplay (ants don't care whether their heading says `-π` or `+π`,
+they both point in the same direction).
+
+Discovered: 2026-04-18 during FASE 6.3 pre-flight analysis.
 
 ## Tech-debt identified during refactor (for FASE 4 Engine split)
 
