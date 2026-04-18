@@ -33,6 +33,26 @@ Observed incidents:
 Python-direct writes (bypass Edit tool, use `open(f, 'wb').write(...)`)
 do not trigger this — confirmed cleanly in FASE 1.2 across 11 files.
 
+### FUSE truncation variant (2026-04-18)
+
+Tijdens FASE 8.1 docs-update ontdekt: Edit-tool op
+`CODEBASE_AUDIT_REPORT.md` en `REFACTOR_PLAN.md` truncateerde files tot
+originele byte-grootte, nieuwe content toegevoegd maar staartregels
+kwijtgeraakt (302→297 regels, 283→279 regels). Nieuwe variant van
+FUSE-bug: geen NUL-padding, maar trailing truncation.
+
+Detection signal: post-Edit `wc -c` matches BEFORE-edit size exactly
+(niet de verwachte new size). Verifieer altijd `wc -c` matches
+expected delta.
+
+Mitigation: zelfde Python-direct write recipe
+(`open(f, 'wb').write(data)`).
+
+Observed incidents:
+
+- 2026-04-18 FASE 8.1 docs: `CODEBASE_AUDIT_REPORT.md` +
+  `REFACTOR_PLAN.md` truncated during Edit-tool call.
+
 ## Deferred Decisions
 
 ### Patrol enum value removal (2026-04-18)
@@ -94,6 +114,26 @@ References:
   `ForgetEnemyTrailAboutDeadColony`.
 - `Simulation/World.cs:335-360` — `DespawnDeadColonies` call chain.
 
+## Tech-debt identified during refactor (for FASE 4 Engine split)
+
+### Lunge rendering leaks CombatTuning into Engine.cs
+
+During FASE 7.3 CombatTuning extraction, it was noted that `Engine.cs`
+directly reads `CombatTuning.LungeDuration` and `CombatTuning.LungeDistance`
+for lunge animation rendering (lines 1136, 1138).
+
+This violates "Engine = only engine concerns" principle — combat tuning
+values should not be read by rendering code directly.
+
+Resolution: FASE 4 Engine split will move lunge-animation rendering
+from `Engine.cs` to a dedicated renderer (`WorldRenderer.cs` or
+`OverlayRenderer.cs`). That renderer takes the `CombatTuning` reference
+instead of `Engine.cs`.
+
+Impact: removes last `CombatTuning` dependency from `Engine.cs`.
+Risk: L (part of FASE 4 extraction work anyway).
+Discovered: 2026-04-18 during FASE 7.3 scope-report.
+
 ## Post-refactor feature requests
 
 ### Combat: rotate-to-face before attacking
@@ -106,3 +146,16 @@ Impact: harness digest changes (this is a gameplay tweak, not refactor).
 Effort: small feature, requires vision-check gate before CombatSystem
 attack trigger.
 Discovered: 2026-04-18 during FASE 7.3 visual testing.
+
+### Pheromone overlay performance (tracked as FASE 6.6)
+
+Current behavior: rendering with pheromone overlay enabled drops fps
+from 2000+ to ~70 (96% drop).
+Desired behavior: same visual result, significantly better fps.
+Impact: harness digest unchanged (simulation logic identical);
+rendering-only optimization.
+Tracked as: `REFACTOR_PLAN.md` FASE 6.6 (added 2026-04-18).
+Effort: profiling-driven; candidate approaches include SKPicture
+caching, dirty-flag partial updates, tile-based rendering,
+lower-resolution overlay texture.
+Discovered: 2026-04-18 during FASE 7.1 visual testing.
