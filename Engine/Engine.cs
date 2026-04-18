@@ -77,9 +77,9 @@ public partial class Engine : Form
     private double _antStageMs;
     private const double StageEmaAlpha = 0.05;
     private FastSKGLControl _skControl = null!;
-    private SKPaint _fillPaint = null!;
-    private SKPaint _strokePaint = null!;
-    private SKPaint _textPaint = null!;
+    private SKPaint _sharedFill = null!;
+    private SKPaint _sharedStroke = null!;
+    private SKPaint _sharedText = null!;
     private SKPaint _antPaint = null!;
     private SKPicture _gridPicture = null!;
     private SKPicture? _gridLinesPicture;
@@ -96,7 +96,7 @@ public partial class Engine : Form
     private UiTopBar _topBar = null!;
     private UiStartOverlay _startOverlay = null!;
     private SKPaint _titlePaint = null!;
-    private SKPaint _borderPaint = null!;
+    private SKPaint _sharedBorder = null!;
     private SKPaint _smallTextPaint = null!;
     private SKPath _nestPath = null!;
     private SKPath _foodPath = null!;
@@ -125,36 +125,36 @@ public partial class Engine : Form
     {
         InitializeComponent();
 
-        _fillPaint = Own(new SKPaint());
-        _fillPaint.Style = SKPaintStyle.Fill;
-        _fillPaint.IsAntialias = false;
+        _sharedFill = Own(new SKPaint());
+        _sharedFill.Style = SKPaintStyle.Fill;
+        _sharedFill.IsAntialias = false;
 
-        _strokePaint = Own(new SKPaint());
-        _strokePaint.Style = SKPaintStyle.Stroke;
-        _strokePaint.IsAntialias = false;
-        _strokePaint.StrokeWidth = 1;
+        _sharedStroke = Own(new SKPaint());
+        _sharedStroke.Style = SKPaintStyle.Stroke;
+        _sharedStroke.IsAntialias = false;
+        _sharedStroke.StrokeWidth = 1;
 
-        _textPaint = Own(new SKPaint());
-        _textPaint.Style = SKPaintStyle.Fill;
-        _textPaint.IsAntialias = true;
-        _textPaint.Color = SKColors.White;
-        _textPaint.TextSize = 14;
+        _sharedText = Own(new SKPaint());
+        _sharedText.Style = SKPaintStyle.Fill;
+        _sharedText.IsAntialias = true;
+        _sharedText.Color = SKColors.White;
+        _sharedText.TextSize = 14;
 
         _antPaint = Own(new SKPaint());
         _antPaint.Style = SKPaintStyle.Fill;
         _antPaint.IsAntialias = true;
         _antPaint.FilterQuality = SKFilterQuality.Low;
 
-        _textMetrics = _textPaint.FontMetrics;
+        _textMetrics = _sharedText.FontMetrics;
         _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
 
         _nestPath = Own(new SKPath());
         _foodPath = Own(new SKPath());
 
-        _borderPaint = Own(new SKPaint());
-        _borderPaint.Style = SKPaintStyle.Stroke;
-        _borderPaint.IsAntialias = false;
-        _borderPaint.StrokeWidth = 1;
+        _sharedBorder = Own(new SKPaint());
+        _sharedBorder.Style = SKPaintStyle.Stroke;
+        _sharedBorder.IsAntialias = false;
+        _sharedBorder.StrokeWidth = 1;
 
         _titlePaint = Own(new SKPaint());
         _titlePaint.Style = SKPaintStyle.Fill;
@@ -545,7 +545,7 @@ public partial class Engine : Form
         _topBarDirty = true;
 
         _topBar.Layout(ClientSize.Width);
-        _topBar.CacheTextPositions(_textPaint, _textMetrics, _textHeight);
+        _topBar.CacheTextPositions(_sharedText, _textMetrics, _textHeight);
 
         _startOverlay.Layout(ClientSize.Width, ClientSize.Height);
     }
@@ -563,7 +563,7 @@ public partial class Engine : Form
     {
         _paused = !_paused;
         _topBar.Layout(ClientSize.Width);
-        _topBar.CacheTextPositions(_textPaint, _textMetrics, _textHeight);
+        _topBar.CacheTextPositions(_sharedText, _textMetrics, _textHeight);
         _topBarDirty = true;
     }
 
@@ -645,7 +645,7 @@ public partial class Engine : Form
 
         for (int i = 0; i < _buttons.Count; i++)
         {
-            _buttons[i].Draw(rc, _fillPaint, _borderPaint, _textPaint);
+            _buttons[i].Draw(rc, _sharedFill, _sharedBorder, _sharedText);
         }
 
         Replace(ref _buttonsPicture!, recorder.EndRecording());
@@ -712,13 +712,13 @@ public partial class Engine : Form
     {
         int w = ClientSize.Width;
         _topBar.Layout(w);
-        _topBar.CacheTextPositions(_textPaint, _textPaint.FontMetrics, -_textPaint.FontMetrics.Ascent + _textPaint.FontMetrics.Descent);
+        _topBar.CacheTextPositions(_sharedText, _sharedText.FontMetrics, -_sharedText.FontMetrics.Ascent + _sharedText.FontMetrics.Descent);
 
         SKRect cullRect = new SKRect(0, 0, w + 20, UiTopBar.BarHeight + 4);
         SKPictureRecorder recorder = new SKPictureRecorder();
         SKCanvas rc = recorder.BeginRecording(cullRect);
 
-        _topBar.Draw(rc, _fillPaint, _borderPaint, _textPaint);
+        _topBar.Draw(rc, _sharedFill, _sharedBorder, _sharedText);
 
         Replace(ref _topBarPicture!, recorder.EndRecording());
         recorder.Dispose();
@@ -775,7 +775,7 @@ public partial class Engine : Form
 
     private void CacheButtonTextPosition(UiButton button)
     {
-        float textWidth = _textPaint.MeasureText(button.Label);
+        float textWidth = _sharedText.MeasureText(button.Label);
         float labelTopX = button.Bounds.X + (button.Bounds.Width - textWidth) / 2;
         float labelTopY = button.Bounds.Y + (button.Bounds.Height - _textHeight) / 2;
         button.TextBaselineX = labelTopX;
@@ -1185,11 +1185,11 @@ public partial class Engine : Form
 
         float dotDiameter = Math.Max(3f, CellSize * 0.6f);
 
-        _fillPaint.Color = colony.CachedSkColor;
-        _fillPaint.StrokeCap = SKStrokeCap.Round;
-        _fillPaint.StrokeWidth = dotDiameter;
-        canvas.DrawPoints(SKPointMode.Points, _antDotPoints, _fillPaint);
-        _fillPaint.StrokeCap = SKStrokeCap.Butt;
+        _sharedFill.Color = colony.CachedSkColor;
+        _sharedFill.StrokeCap = SKStrokeCap.Round;
+        _sharedFill.StrokeWidth = dotDiameter;
+        canvas.DrawPoints(SKPointMode.Points, _antDotPoints, _sharedFill);
+        _sharedFill.StrokeCap = SKStrokeCap.Butt;
     }
 
     private void ApplyBodyTint(SKColor colonyColor)
@@ -1289,15 +1289,15 @@ public partial class Engine : Form
                 if (Home > PheromoneOverlayCutoff)
                 {
                     byte alpha = ScaleIntensityToAlpha(Home);
-                    _fillPaint.Color = new SKColor(homeR, homeG, homeB, alpha);
-                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
+                    _sharedFill.Color = new SKColor(homeR, homeG, homeB, alpha);
+                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _sharedFill);
                 }
 
                 if (Food > PheromoneOverlayCutoff)
                 {
                     byte alpha = ScaleIntensityToAlpha(Food);
-                    _fillPaint.Color = new SKColor(FoodPheromoneColor.Red, FoodPheromoneColor.Green, FoodPheromoneColor.Blue, alpha);
-                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _fillPaint);
+                    _sharedFill.Color = new SKColor(FoodPheromoneColor.Red, FoodPheromoneColor.Green, FoodPheromoneColor.Blue, alpha);
+                    canvas.DrawRect(pixelX, pixelY, CellSize, CellSize, _sharedFill);
                 }
             }
         }
@@ -1348,10 +1348,10 @@ public partial class Engine : Form
     private void DrawStatsCard(SKCanvas canvas, Colony colony, int x, int y, bool isDead)
     {
         SKColor colonyColor = colony.CachedSkColor;
-        _fillPaint.Color = UiTheme.BgPanel;
-        _borderPaint.Color = UiTheme.BorderSubtle;
-        _borderPaint.StrokeWidth = UiTheme.BorderThin;
-        UiPanel.DrawWithBorder(canvas, _fillPaint, _borderPaint, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
+        _sharedFill.Color = UiTheme.BgPanel;
+        _sharedBorder.Color = UiTheme.BorderSubtle;
+        _sharedBorder.StrokeWidth = UiTheme.BorderThin;
+        UiPanel.DrawWithBorder(canvas, _sharedFill, _sharedBorder, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
         float healthFraction = colony.NestHealthFraction;
 
         if (healthFraction < 0f) healthFraction = 0f;
@@ -1361,27 +1361,27 @@ public partial class Engine : Form
 
         if (barWidth > 0f)
         {
-            _fillPaint.Color = colonyColor;
-            canvas.DrawRect(x + 1f, y + 1f, barWidth, 6f, _fillPaint);
+            _sharedFill.Color = colonyColor;
+            canvas.DrawRect(x + 1f, y + 1f, barWidth, 6f, _sharedFill);
         }
 
         float pad = StatsCardPadding;
         float textX = x + pad;
         float curY = y + 24f;
 
-        _textPaint.Color = UiTheme.TextStrong;
+        _sharedText.Color = UiTheme.TextStrong;
         string headerLine = "Ants " + colony.Ants.Count + "   Food " + colony.NestFood;
-        canvas.DrawText(headerLine, textX, curY, _textPaint);
+        canvas.DrawText(headerLine, textX, curY, _sharedText);
         curY += 10f;
 
         float graphW = StatsPanelWidth - pad * 2f;
         float graphH = StatsGraphHeight + 8f;
-        _fillPaint.Color = UiTheme.BgPanelAlt;
-        canvas.DrawRect(textX, curY, graphW, graphH, _fillPaint);
+        _sharedFill.Color = UiTheme.BgPanelAlt;
+        canvas.DrawRect(textX, curY, graphW, graphH, _sharedFill);
         DrawPopulationGraph(canvas, colony, textX + 2f, curY + 2f, graphW - 4f, graphH - 4f);
         curY += graphH + 6f;
 
-        _textPaint.Color = UiTheme.TextBody;
+        _sharedText.Color = UiTheme.TextBody;
         DrawRoleBreakdown(canvas, colony, textX, curY);
         curY += StatsLineHeight * 4f + 4f;
 
@@ -1389,15 +1389,15 @@ public partial class Engine : Form
 
         if (isDead)
         {
-            _fillPaint.Color = new SKColor(0, 0, 0, 160);
-            UiPanel.Draw(canvas, _fillPaint, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
+            _sharedFill.Color = new SKColor(0, 0, 0, 160);
+            UiPanel.Draw(canvas, _sharedFill, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
 
             float elapsed = _world.SimulationTime - colony.DeathTime;
             if (elapsed < 0f) elapsed = 0f;
             string label = "DEAD - " + colony.DeathReason + " (" + ((int)elapsed) + "s ago)";
-            _textPaint.Color = UiTheme.TextStrong;
-            float tw = _textPaint.MeasureText(label);
-            canvas.DrawText(label, x + (StatsPanelWidth - tw) / 2f, y + StatsCardHeight / 2f - _textMetrics.Ascent / 2f, _textPaint);
+            _sharedText.Color = UiTheme.TextStrong;
+            float tw = _sharedText.MeasureText(label);
+            canvas.DrawText(label, x + (StatsPanelWidth - tw) / 2f, y + StatsCardHeight / 2f - _textMetrics.Ascent / 2f, _sharedText);
         }
     }
 
@@ -1413,35 +1413,35 @@ public partial class Engine : Form
 
     private void DrawRoleRow(SKCanvas canvas, string label, int count, int total, SKColor barColor, float x, float y)
     {
-        _textPaint.Color = UiTheme.TextBody;
-        canvas.DrawText(label, x, y + 11, _textPaint);
+        _sharedText.Color = UiTheme.TextBody;
+        canvas.DrawText(label, x, y + 11, _sharedText);
 
         string countStr = count.ToString(CultureInfo.InvariantCulture);
-        float labelW = _textPaint.MeasureText(label);
-        _textPaint.Color = UiTheme.TextStrong;
-        canvas.DrawText(countStr, x + labelW + 6f, y + 11, _textPaint);
+        float labelW = _sharedText.MeasureText(label);
+        _sharedText.Color = UiTheme.TextStrong;
+        canvas.DrawText(countStr, x + labelW + 6f, y + 11, _sharedText);
 
         float barX = x + 120f;
         float barY = y + 3f;
         float barH = StatsRoleBarHeight + 2f;
 
-        _fillPaint.Color = UiTheme.BgPanelHover;
-        canvas.DrawRect(barX, barY, StatsRoleBarWidth, barH, _fillPaint);
+        _sharedFill.Color = UiTheme.BgPanelHover;
+        canvas.DrawRect(barX, barY, StatsRoleBarWidth, barH, _sharedFill);
 
         float fraction = (float)count / (float)total;
         float filledW = fraction * StatsRoleBarWidth;
         if (filledW > 1f)
         {
-            _fillPaint.Color = barColor;
-            canvas.DrawRect(barX, barY, filledW, barH, _fillPaint);
+            _sharedFill.Color = barColor;
+            canvas.DrawRect(barX, barY, filledW, barH, _sharedFill);
         }
     }
 
     private void DrawQueenIntent(SKCanvas canvas, Colony colony, float x, float y)
     {
         QueenIntent intent = colony.RoleQuota.GetCurrentIntent(colony);
-        _textPaint.Color = UiTheme.TextMuted;
-        canvas.DrawText("Queen: " + intent.Plan, x, y + 11, _textPaint);
+        _sharedText.Color = UiTheme.TextMuted;
+        canvas.DrawText("Queen: " + intent.Plan, x, y + 11, _sharedText);
 
         float defenseY = y + StatsLineHeight;
         DrawSignalBar(canvas, "Defense:", colony.Defense, DefenseBarColor, x, defenseY);
@@ -1452,22 +1452,22 @@ public partial class Engine : Form
 
     private void DrawSignalBar(SKCanvas canvas, string label, float value, SKColor barColor, float x, float y)
     {
-        _textPaint.Color = UiTheme.TextMuted;
-        canvas.DrawText(label, x, y + 11, _textPaint);
+        _sharedText.Color = UiTheme.TextMuted;
+        canvas.DrawText(label, x, y + 11, _sharedText);
 
         float barX = x + 60f;
         float barY = y + 3f;
         float barW = StatsRoleBarWidth + 34f;
         float barH = StatsRoleBarHeight + 2f;
 
-        _fillPaint.Color = UiTheme.BgPanelHover;
-        canvas.DrawRect(barX, barY, barW, barH, _fillPaint);
+        _sharedFill.Color = UiTheme.BgPanelHover;
+        canvas.DrawRect(barX, barY, barW, barH, _sharedFill);
 
         float filled = value * barW;
         if (filled > 1f)
         {
-            _fillPaint.Color = barColor;
-            canvas.DrawRect(barX, barY, filled, barH, _fillPaint);
+            _sharedFill.Color = barColor;
+            canvas.DrawRect(barX, barY, filled, barH, _sharedFill);
         }
     }
 
@@ -1509,13 +1509,13 @@ public partial class Engine : Form
         fillPath.Close();
 
         SKColor colonyColor = colony.CachedSkColor;
-        _fillPaint.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 70);
-        canvas.DrawPath(fillPath, _fillPaint);
+        _sharedFill.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 70);
+        canvas.DrawPath(fillPath, _sharedFill);
 
-        _strokePaint.Color = colony.CachedSkColor;
-        _strokePaint.StrokeWidth = 2f;
-        _strokePaint.IsAntialias = true;
-        canvas.DrawPath(linePath, _strokePaint);
+        _sharedStroke.Color = colony.CachedSkColor;
+        _sharedStroke.StrokeWidth = 2f;
+        _sharedStroke.IsAntialias = true;
+        canvas.DrawPath(linePath, _sharedStroke);
 
         int maxFood = stats.GetMaxFood();
         if (maxFood < 1) maxFood = 1;
@@ -1530,12 +1530,12 @@ public partial class Engine : Form
             else
                 foodLinePath.LineTo(px, py);
         }
-        _strokePaint.Color = _foodSkColor;
-        _strokePaint.StrokeWidth = 1.5f;
-        canvas.DrawPath(foodLinePath, _strokePaint);
+        _sharedStroke.Color = _foodSkColor;
+        _sharedStroke.StrokeWidth = 1.5f;
+        canvas.DrawPath(foodLinePath, _sharedStroke);
 
-        _strokePaint.IsAntialias = false;
-        _strokePaint.StrokeWidth = 1f;
+        _sharedStroke.IsAntialias = false;
+        _sharedStroke.StrokeWidth = 1f;
     }
 
     private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
@@ -1562,8 +1562,8 @@ public partial class Engine : Form
             }
         }
 
-        _fillPaint.Color = color;
-        canvas.DrawPath(_nestPath, _fillPaint);
+        _sharedFill.Color = color;
+        canvas.DrawPath(_nestPath, _sharedFill);
     }
 
     private void OnSkPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
@@ -1573,7 +1573,7 @@ public partial class Engine : Form
 
         if (_startOverlay.Visible)
         {
-            _startOverlay.Draw(canvas, ClientSize.Width, ClientSize.Height, _fillPaint, _borderPaint, _textPaint, _titlePaint);
+            _startOverlay.Draw(canvas, ClientSize.Width, ClientSize.Height, _sharedFill, _sharedBorder, _sharedText, _titlePaint);
             return;
         }
 
@@ -1651,8 +1651,8 @@ public partial class Engine : Form
             ScreenToCell(_mouseX, _mouseY, out int hoverCellX, out int hoverCellY);
             if (hoverCellX >= 0 && hoverCellX < _world.Width && hoverCellY >= 0 && hoverCellY < _world.Height)
             {
-                _fillPaint.Color = _foodSkColor.WithAlpha(140);
-                canvas.DrawRect(hoverCellX * CellSize, hoverCellY * CellSize, CellSize, CellSize, _fillPaint);
+                _sharedFill.Color = _foodSkColor.WithAlpha(140);
+                canvas.DrawRect(hoverCellX * CellSize, hoverCellY * CellSize, CellSize, CellSize, _sharedFill);
             }
         }
 
@@ -1797,13 +1797,13 @@ public partial class Engine : Form
         AntRole role = ant.Role;
         SKColor colonyColor = colony.CachedSkColor;
         float heading = ant.Heading;
-        _fillPaint.IsAntialias = true;
+        _sharedFill.IsAntialias = true;
         float smellRadius = role.SensorDistance * CellSize;
-        _fillPaint.Style = SKPaintStyle.Stroke;
-        _fillPaint.StrokeWidth = 1.5f / _camera.Zoom;
-        _fillPaint.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 70);
-        canvas.DrawCircle(cx, cy, smellRadius, _fillPaint);
-        _fillPaint.Style = SKPaintStyle.Fill;
+        _sharedFill.Style = SKPaintStyle.Stroke;
+        _sharedFill.StrokeWidth = 1.5f / _camera.Zoom;
+        _sharedFill.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 70);
+        canvas.DrawCircle(cx, cy, smellRadius, _sharedFill);
+        _sharedFill.Style = SKPaintStyle.Fill;
         float visionDist = role.VisionRange * CellSize;
         float sensorAngle = role.SensorAngleRad;
 
@@ -1815,22 +1815,22 @@ public partial class Engine : Form
         float arrowLen = role.VisionRange * CellSize;
         float ax = cx + (float)Math.Cos(heading) * arrowLen;
         float ay = cy + (float)Math.Sin(heading) * arrowLen;
-        _fillPaint.Style = SKPaintStyle.Stroke;
-        _fillPaint.StrokeWidth = 2f / _camera.Zoom;
-        _fillPaint.Color = new SKColor(255, 255, 255, 200);
-        canvas.DrawLine(cx, cy, ax, ay, _fillPaint);
+        _sharedFill.Style = SKPaintStyle.Stroke;
+        _sharedFill.StrokeWidth = 2f / _camera.Zoom;
+        _sharedFill.Color = new SKColor(255, 255, 255, 200);
+        canvas.DrawLine(cx, cy, ax, ay, _sharedFill);
         float arrowHeadLen = 0.8f * CellSize;
         float arrowSpread = 0.4f;
         canvas.DrawLine(ax, ay,
             ax - (float)Math.Cos(heading - arrowSpread) * arrowHeadLen,
-            ay - (float)Math.Sin(heading - arrowSpread) * arrowHeadLen, _fillPaint);
+            ay - (float)Math.Sin(heading - arrowSpread) * arrowHeadLen, _sharedFill);
         canvas.DrawLine(ax, ay,
             ax - (float)Math.Cos(heading + arrowSpread) * arrowHeadLen,
-            ay - (float)Math.Sin(heading + arrowSpread) * arrowHeadLen, _fillPaint);
-        _fillPaint.Style = SKPaintStyle.Fill;
-        _fillPaint.StrokeWidth = 0f;
-        _fillPaint.StrokeCap = SKStrokeCap.Butt;
-        _fillPaint.IsAntialias = false;
+            ay - (float)Math.Sin(heading + arrowSpread) * arrowHeadLen, _sharedFill);
+        _sharedFill.Style = SKPaintStyle.Fill;
+        _sharedFill.StrokeWidth = 0f;
+        _sharedFill.StrokeCap = SKStrokeCap.Butt;
+        _sharedFill.IsAntialias = false;
     }
 
     private void DrawVisionCone(SKCanvas canvas, float cx, float cy, float heading, float halfAngle, float radius, SKColor colonyColor)
@@ -1854,15 +1854,15 @@ public partial class Engine : Form
 
         conePath.Close();
 
-        _fillPaint.Style = SKPaintStyle.Fill;
-        _fillPaint.Color = new SKColor(255, 255, 255, 16);
-        canvas.DrawPath(conePath, _fillPaint);
-        _fillPaint.Style = SKPaintStyle.Stroke;
-        _fillPaint.StrokeWidth = 1.5f / _camera.Zoom;
-        _fillPaint.Color = new SKColor(255, 255, 255, 80);
-        canvas.DrawPath(conePath, _fillPaint);
+        _sharedFill.Style = SKPaintStyle.Fill;
+        _sharedFill.Color = new SKColor(255, 255, 255, 16);
+        canvas.DrawPath(conePath, _sharedFill);
+        _sharedFill.Style = SKPaintStyle.Stroke;
+        _sharedFill.StrokeWidth = 1.5f / _camera.Zoom;
+        _sharedFill.Color = new SKColor(255, 255, 255, 80);
+        canvas.DrawPath(conePath, _sharedFill);
 
-        _fillPaint.Style = SKPaintStyle.Fill;
+        _sharedFill.Style = SKPaintStyle.Fill;
     }
 
     private void DrawSelectedAntInfoPanel(SKCanvas canvas)
