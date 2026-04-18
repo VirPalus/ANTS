@@ -6,14 +6,8 @@ public static class SensorSystem
     private const float StochasticAngleRange = 1.2f;
     private const float StochasticMinDistance = 2.0f;
     private const float StochasticMaxDistance = 10.0f;
-    private const float ForwardBias = 1.35f;
-    private const float TurnMargin = 1.15f;
     private const float WanderNoiseRange = 0.8f;
-    private const int SampleRadius = 1;
-    private const float LostHomingWeight = 0.15f;
 
-    private const float StrengthWeight = 0.35f;
-    private const float DistanceWeight = 0.65f;
     private const float DetectionThreshold = 0.005f;
 
     public static void Sense(Ant ant, Colony colony, World world)
@@ -53,7 +47,7 @@ public static class SensorSystem
 
         float chosenValue = fixedBestValue;
         float chosenAngle = fixedBestAngle;
-        if (stochasticBestValue > fixedBestValue * TurnMargin)
+        if (stochasticBestValue > fixedBestValue * SensorTuning.TurnMargin)
         {
             chosenValue = stochasticBestValue;
             chosenAngle = stochasticBestAngle;
@@ -78,8 +72,8 @@ public static class SensorSystem
             float fs = (float)Math.Sin(fallbackAngle);
             float nc = (float)Math.Cos(nestAngle);
             float ns = (float)Math.Sin(nestAngle);
-            float bc = fc * (1f - LostHomingWeight) + nc * LostHomingWeight;
-            float bs = fs * (1f - LostHomingWeight) + ns * LostHomingWeight;
+            float bc = fc * (1f - SensorTuning.LostHomingWeight) + nc * SensorTuning.LostHomingWeight;
+            float bs = fs * (1f - SensorTuning.LostHomingWeight) + ns * SensorTuning.LostHomingWeight;
             fallbackAngle = (float)Math.Atan2(bs, bc);
         }
 
@@ -106,8 +100,8 @@ public static class SensorSystem
 
     private static void PickFixedBest(float center, float left, float right, float centerAngle, float leftAngle, float rightAngle, out float bestValue, out float bestAngle)
     {
-        float biasedCenter = center * ForwardBias;
-        if (biasedCenter >= left * TurnMargin && biasedCenter >= right * TurnMargin)
+        float biasedCenter = center * SensorTuning.ForwardBias;
+        if (biasedCenter >= left * SensorTuning.TurnMargin && biasedCenter >= right * SensorTuning.TurnMargin)
         {
             bestValue = center;
             bestAngle = centerAngle;
@@ -153,9 +147,9 @@ public static class SensorSystem
         float bestScore = 0f;
         PheromoneGrid grid = colony.PheromoneGrid;
 
-        for (int dy = -SampleRadius; dy <= SampleRadius; dy++)
+        for (int dy = -SensorTuning.SampleRadius; dy <= SensorTuning.SampleRadius; dy++)
         {
-            for (int dx = -SampleRadius; dx <= SampleRadius; dx++)
+            for (int dx = -SensorTuning.SampleRadius; dx <= SensorTuning.SampleRadius; dx++)
             {
                 int sx = cx + dx;
                 int sy = cy + dy;
@@ -179,7 +173,7 @@ public static class SensorSystem
                 {
                     float goalDist = grid.GetDistance(channel, sx, sy);
                     float distScore = 1f / (1f + goalDist);
-                    score = strength * StrengthWeight + distScore * DistanceWeight;
+                    score = strength * SensorTuning.StrengthWeight + distScore * SensorTuning.DistanceWeight;
                 }
                 else
                 {
