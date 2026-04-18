@@ -227,7 +227,7 @@ All struct/class fields are `internal const`. No value changes.
 **Candidates.**
 
 - ~~`GoalType.Patrol`~~ **SKIPPED** — Patrol is not dead code (see audit §3, updated 2026-04-18). Used as UI state-tag in `AttackerRole`/`DefenderRole` + displayed via `Engine.cs:1903`. Requires separate UI-modernization decision, out of refactor scope.
-- `PheromoneGrid.ClearEnemyTrailForTarget` — verify caller; if none, delete.
+- ~~`PheromoneGrid.ClearEnemyTrailForTarget`~~ **SKIPPED** — live cleanup method (see audit §3, updated 2026-04-18). Called on colony death from `World.cs:372` via `DespawnDeadColonies` → `ForgetEnemyTrailAboutDeadColony`. Removing it would leak memory in per-enemy dictionaries and drift the harness digest.
 - `AntGoal` — if FASE 3 chose Option A (inline), delete the struct.
 
 **Files touched.** The affected types only.

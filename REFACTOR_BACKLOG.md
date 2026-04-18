@@ -58,3 +58,38 @@ References:
 - `Simulation/Roles/AttackerRole.cs:48,50` — check-and-set.
 - `Simulation/Roles/DefenderRole.cs:53,55` — check-and-set.
 - `Engine/Engine.cs:1903` — `ant.Goal.Type.ToString()` info-panel display.
+
+### ClearEnemyTrailForTarget removal (2026-04-18)
+
+`PheromoneGrid.ClearEnemyTrailForTarget(int)` appears unused at first
+glance but is called from `World.cs:372` inside
+`ForgetEnemyTrailAboutDeadColony(Colony deadColony)`, which itself runs
+from `DespawnDeadColonies` on every tick with dead colonies.
+
+The method removes the dead colony's keys from 4 per-enemy-colony
+dictionaries:
+
+- `_enemyTrails`
+- `_enemyDistances`
+- `_enemyActiveCells`
+- `_enemyActiveSet`
+
+Deleting the method would cause:
+
+(a) compile break at `World.cs:372` (CS1061), and if the caller is also
+    removed,
+(b) memory leak in the 4 dictionaries (grow-only over colony deaths),
+    and
+(c) harness-digest drift, because lingering enemy-trail data affects
+    `pheromoneCellCount-per-channel` in the per-second digest and
+    influences `SensorSystem` indirectly.
+
+Not deferred for later — this is live code. FASE 8.2 is marked SKIPPED
+in REFACTOR_PLAN.md and CODEBASE_AUDIT_REPORT.md §3 has been corrected.
+
+References:
+
+- `Simulation/Pheromones/PheromoneGrid.cs:233-239` — definition.
+- `Simulation/World.cs:372` — only call site, inside
+  `ForgetEnemyTrailAboutDeadColony`.
+- `Simulation/World.cs:335-360` — `DespawnDeadColonies` call chain.
