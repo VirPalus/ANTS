@@ -9,16 +9,21 @@
         "infintie",
         "ldist",
         "lerped",
+        "parallelising",
         "phero",
         "playfield",
         "pngs",
         "Premul",
+        "pushable",
         "rects",
         "Rects",
         "scos",
+        "seedable",
         "Segoe",
         "SKGL",
         "Skia",
-        "ssin"
+        "ssin",
+        "stabilises",
+        "topbar"
     ]
 }
