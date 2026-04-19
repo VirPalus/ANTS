@@ -747,3 +747,47 @@ warning if invoked more than once per second.
 Scope: low priority — no current misuse, but API surface risk worth
 flagging.
 Discovered: 2026-04-19 during fase-4.10 StatsPanelRenderer extract.
+
+---
+
+## fase-4.11 → fase-4.12 wire-up (tracking note)
+
+fase-4.11 landed profiling infrastructure as pure addition (4 files
+under `Engine/Profiling/`): `ProfileSample.cs`, `RingBuffer.cs`,
+`FrameProfiler.cs`, `ProfileWriter.cs`. Engine.cs and all renderers
+were untouched (md5 verified ongewijzigd).
+
+The infrastructure is dead code until fase-4.12 wires callers. State
+of the classes as landed:
+- `FrameProfiler` instantiable but never instantiated by production code
+- `ProfileWriter` constructible only via `FrameProfiler.Enable()`
+- `RingBuffer<ProfileSample>` only live through `FrameProfiler`
+- `ProfilePhase` enum referenced only by `FrameProfiler` internals
+
+Dead-code gate: build with `-warnaserror` passes because the classes
+are `public sealed` (CA1812 scope is internal types) and every
+private field is touched on some reachable code path.
+
+Pending for fase-4.12 (do not start yet):
+1. Construct `FrameProfiler` in Engine ctor via `Own(new FrameProfiler())`.
+2. Insert `BeginFrame` / `EndFrame` around the body of `Engine.Tick`
+   (must NOT replace the existing HudRenderer timing calls — they
+   coexist; HUD = always-on, profiler = opt-in toggle).
+3. Insert `BeginPhase(Sim)` / `EndPhase(Sim)` around `_sim.Advance()`.
+4. Insert `BeginPhase(PaintTotal)` around the body of `OnPaint`, plus
+   the 5 inner phase pairs (WorldDraw, OverlayDraw, AntsDraw,
+   StatsDraw, HudDraw).
+5. Add a top-bar toggle button + F2 hotkey that calls
+   `Enable()` / `Disable()`.
+6. Add a HUD status indicator that reads `FrameProfiler.IsEnabled`
+   and `FrameProfiler.Ring.DroppedCount`.
+
+Observer-effect note for fase-4.12 design: per-phase timing will then
+incur BOTH HUD timing (existing, always-on) AND profiler timing
+(new, opt-in) = 4 `Stopwatch.GetTimestamp()` calls per phase instead
+of 2 when the profiler is enabled. Overhead doubles from ~0.018% to
+~0.036% of a 4.17 ms frame budget at 240 FPS. Acceptable as a first
+cut; a future optimization could route HUD timing through the
+profiler when enabled. NOT an issue to fix in fase-4.11 or fase-4.12.
+
+Discovered: 2026-04-19 during fase-4.11 infrastructure landing.
