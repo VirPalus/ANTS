@@ -18,10 +18,10 @@ using SkiaSharp;
 /// EMA smoothing.
 ///
 /// Rebuild cadence is controlled by _hudStopwatch (throttled to
-/// HudUpdateIntervalMs = 50 ms). MaybeRebuild() returns true when a
-/// rebuild occurred so the caller can fan out to coupled rebuilds
-/// (stats panel); this coupling will be cleaned up in fase-4.10
-/// StatsPanelRenderer extract.
+/// HudUpdateIntervalMs = 50 ms). MaybeRebuild() rebuilds the HUD
+/// picture when the interval has elapsed. After fase-4.10 the stats
+/// panel owns its own independent rebuild cadence, so this method no
+/// longer needs to signal coupled rebuilds and returns void.
 /// </summary>
 public sealed class HudRenderer : IDisposable
 {
@@ -107,19 +107,15 @@ public sealed class HudRenderer : IDisposable
 
     /// <summary>
     /// If the rebuild interval has elapsed, rebuilds the HUD picture
-    /// and restarts the rebuild stopwatch. Returns true when a
-    /// rebuild happened so the caller can fan out to coupled
-    /// rebuilds (stats panel — coupling deferred to fase-4.10).
+    /// and restarts the rebuild stopwatch.
     /// </summary>
-    public bool MaybeRebuild()
+    public void MaybeRebuild()
     {
         if (_hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
         {
             RecordHudPicture();
             _hudStopwatch.Restart();
-            return true;
         }
-        return false;
     }
 
     /// <summary>

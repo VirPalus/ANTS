@@ -612,3 +612,138 @@ state (from ~20 Hz down to ~4-5 Hz).
 Scope: planned for fase-4.10 StatsPanelRenderer extract as a natural
 byproduct of the decoupling.
 Discovered: 2026-04-19 during fase-4.9 HudRenderer extract.
+
+---
+
+## FASE 5.5: Stats Panel Performance Sprint (PLANNED POST-FASE 4)
+
+Goal: address 3 stats-panel perf observations identified during
+fase-4.10 StatsPanelRenderer extract. Each sub-phase is
+characterization-gated (byte-identical digest must be preserved) and
+measured against the current stats-rebuild budget at its now-throttled
+4 Hz cadence.
+
+Execution follows the FASE 5 template: baseline profile → targeted
+change → harness byte-identity → before/after microbenchmark. These
+observations were deferred from fase-4.10 (which explicitly limited
+itself to "extract + rebuild-cadence throttle" — no paint-path
+surgery).
+
+### FASE 5.5-F: Obs-F — SKPath per-graph allocation in DrawPopulationGraph
+
+Observation: `DrawPopulationGraph()` allocates a fresh `SKPath` per
+colony per stats-rebuild. At 240 samples the path receives one
+`MoveTo` + up to 239 `LineTo` calls. Inside SKPictureRecorder the
+SKPath itself is cheap, but the allocation + disposal churn is
+avoidable.
+
+Approach: hoist a reusable `SKPath` into StatsPanelRenderer as a
+field; `Reset()` between colony draws. Alternatively, consider
+building a `float[]` x-stride + `float[]` y-stride pair and issuing
+`DrawPoints(SKPointMode.Polygon, ...)` — one allocation-free call
+per graph.
+
+Risk: byte-identity — DrawPoints and Path-stroke rasterization rules
+are equivalent only when stroke width ≥ 1 and cap/join settings
+match. Need digest verification.
+
+Expected win: 5-20μs per stats-rebuild (once per 250ms cadence, so
+20-80μs/sec of wall time — small but mechanically clean).
+
+### FASE 5.5-G: Obs-G — String allocations in DrawStatsCard
+
+Observation: `DrawStatsCard()` and the signal/role sub-draws call
+`count.ToString(CultureInfo.InvariantCulture)` and string
+interpolation per stats-rebuild for counts, pressures, and role
+breakdowns. ~30-50 small string allocations per card × N colonies.
+At the new 4 Hz cadence this is 120-200 string allocs/sec just from
+stats.
+
+Approach: either (a) use stackalloc + `Utf8Formatter` with an
+`SKPaint.DrawText(ReadOnlySpan<byte>...)` path, or (b) cache last-
+drawn values and re-use the formatted string when the underlying
+value is unchanged, or (c) adopt a pooled `char[]` with
+`TryFormat` + `DrawText(string, int, int, ...)` overloads.
+
+Risk: low — formatting output must be bit-identical to the current
+culture-invariant ToString. `TryFormat` with InvariantCulture is a
+direct swap-in.
+
+Expected win: measurable GC reduction; ~1-2 μs/card × N colonies
+per rebuild, but mostly GC-pressure relief (Gen0 churn).
+
+### FASE 5.5-H: Obs-H — Stats cullRect is too generous
+
+Observation: `RecordStatsPicture()` uses
+`SKRect.Create(0, 0, StatsPanelWidth + 20, clientHeight + 20)` as
+the picture's cull rect. This bound is conservative — actual draw
+content only extends from `UiTopBar.BarHeight` down to the last
+colony card bottom. SKPicture playback with a tight cull rect
+enables SkiaSharp to skip clipped operations faster.
+
+Approach: compute the actual content height as
+`colonies.Count * (StatsCardHeight + StatsCardSpacing) +
+UiTopBar.BarHeight + slackPadding` and use that as the cullRect
+height. Width similarly: `StatsPanelWidth + 2*slackPadding`.
+
+Risk: if new draw content is added below the last card without
+updating the cullRect formula, it will be silently clipped.
+Mitigation: add a runtime assert in DEBUG builds when any draw
+operation's bounds exceed the cull rect.
+
+Expected win: marginal (~2-5% picture-playback speedup).
+
+Scope: planned for FASE 5 sprint after FASE 4 completion.
+Discovered: 2026-04-19 during fase-4.10 StatsPanelRenderer extract.
+
+---
+
+## Stats panel scroll UX (feature request)
+
+Location: `Engine/StatsPanelRenderer.cs` (post-fase-4.10).
+
+Observation: the stats panel renders one card per colony stacked
+vertically. With 4+ colonies at typical window heights the bottom
+cards overflow below the window viewport and are not visible. There
+is currently no scroll state — fase-4.10 grep confirmed zero
+existing `_statsScrollOffset` or `_statsScrollbarDragging` fields
+(i.e. scrolling was never implemented).
+
+Fix direction: add scroll state inside StatsPanelRenderer
+(`_scrollOffset` float, `_scrollbarDragging` bool, `_dragStartY`,
+`_dragStartOffset`). Wire mouse-wheel events (WndProc WM_MOUSEWHEEL)
+and a scrollbar track on the right edge of the panel. RebuildNow
+remains cadence-throttled; scroll is applied as a canvas translate
+in Draw() so no rebuild is needed on scroll.
+
+Scope: user-facing feature, not a performance refactor. Candidate
+for FASE 7+ UX polish sprint.
+Discovered: 2026-04-19 during fase-4.10 StatsPanelRenderer extract
+scope-report (user asked about existing scroll state; none found).
+
+---
+
+## StatsPanelRenderer.RebuildNow placement risk
+
+Location: `Engine/StatsPanelRenderer.cs` (fase-4.10 public API).
+
+Observation: StatsPanelRenderer exposes both `MaybeRebuild(width,
+height)` (throttled, called every tick) and `RebuildNow(width,
+height)` (unconditional rebuild, currently unused). The intent of
+RebuildNow is to give external callers (Engine map-reload path, or
+a debug "invalidate" button) a way to force a fresh picture
+immediately rather than waiting up to 250ms.
+
+Risk: if a future caller invokes `RebuildNow` on every tick (bug or
+bad coupling), the 4 Hz throttle is silently defeated and the stats
+panel reverts to its pre-fase-4.10 cadence. There is no runtime
+guard against this misuse.
+
+Fix direction: either (a) remove `RebuildNow` until a concrete need
+surfaces (YAGNI) — simplest option; or (b) add a DEBUG-only assert
+inside RebuildNow that tracks call-count-per-second and logs a
+warning if invoked more than once per second.
+
+Scope: low priority — no current misuse, but API surface risk worth
+flagging.
+Discovered: 2026-04-19 during fase-4.10 StatsPanelRenderer extract.

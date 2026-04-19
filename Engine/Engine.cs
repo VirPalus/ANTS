@@ -15,20 +15,6 @@ public partial class Engine : Form
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
     private const float FitMarginPx = 40f;
-    private const int StatsPanelWidth = 260;
-    private const int StatsCardHeight = 230;
-    private const int StatsCardSpacing = 8;
-    private const int StatsCardPadding = 10;
-    private const int StatsGraphHeight = 44;
-    private const int StatsLineHeight = 16;
-    private const int StatsRoleBarHeight = 6;
-    private const int StatsRoleBarWidth = 80;
-    private static readonly SKColor ScoutBarColor = new SKColor(96, 165, 250);
-    private static readonly SKColor ForagerBarColor = new SKColor(251, 191, 36);
-    private static readonly SKColor DefenderBarColor = new SKColor(239, 68, 68);
-    private static readonly SKColor AttackerBarColor = new SKColor(168, 85, 247);
-    private static readonly SKColor DefenseBarColor = new SKColor(220, 38, 38);
-    private static readonly SKColor OffenseBarColor = new SKColor(234, 179, 8);
 
     private static readonly Color FoodColor = Color.FromArgb(34, 197, 94);
     private World _world = null!;
@@ -40,7 +26,6 @@ public partial class Engine : Form
     private InputRouter _input = null!;
     private FastSKGLControl _skControl = null!;
     private PaintCache _paints = null!;
-    private SKPicture _statsPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private bool _buttonsDirty = true;
     private SKPicture? _topBarPicture;
@@ -51,6 +36,7 @@ public partial class Engine : Form
     private AntsRenderer _antsRenderer = null!;
     private OverlayRenderer _overlayRenderer = null!;
     private HudRenderer _hudRenderer = null!;
+    private StatsPanelRenderer _statsRenderer = null!;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
     private int _frameCap = 10000;
@@ -122,7 +108,8 @@ public partial class Engine : Form
         _overlayRenderer = Own(new OverlayRenderer(_paints, _camera, () => _world));
         _hudRenderer = Own(new HudRenderer(_paints));
         _hudRenderer.Start();
-        RecordStatsPicture();
+        _statsRenderer = Own(new StatsPanelRenderer(_paints, () => _world, _foodSkColor));
+        _statsRenderer.Start(ClientSize.Width, ClientSize.Height);
         _worldRenderer.Rebuild();
         RecordTopBarPicture();
         UpdateFrameCapTiming();
@@ -274,10 +261,8 @@ public partial class Engine : Form
 
         _input.ApplyKeyboardPan();
 
-        if (_hudRenderer.MaybeRebuild())
-        {
-            RecordStatsPicture();
-        }
+        _hudRenderer.MaybeRebuild();
+        _statsRenderer.MaybeRebuild(ClientSize.Width, ClientSize.Height);
 
         _skControl.RenderFrameDirect();
 
@@ -384,20 +369,6 @@ public partial class Engine : Form
         _buttonsDirty = false;
     }
 
-    private void RecordStatsPicture()
-    {
-        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
-
-        SKRect cullRect = new SKRect(0, 0, ClientSize.Width + 20, ClientSize.Height + 20);
-        SKPictureRecorder recorder = new SKPictureRecorder();
-        SKCanvas rc = recorder.BeginRecording(cullRect);
-
-        DrawStatsPanel(rc);
-
-        Replace(ref _statsPicture!, recorder.EndRecording());
-        recorder.Dispose();
-    }
-
     private void RecordTopBarPicture()
     {
         // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
@@ -445,231 +416,6 @@ public partial class Engine : Form
         return new SKColor(color.R, color.G, color.B, color.A);
     }
 
-    private void DrawStatsPanel(SKCanvas canvas)
-    {
-        IReadOnlyList<Colony> colonies = _world.Colonies;
-        IReadOnlyList<Colony> dead = _world.DeadColonies;
-        int aliveCount = colonies.Count;
-        int deadCount = dead.Count;
-        if (aliveCount + deadCount == 0)
-        {
-            return;
-        }
-
-        int panelX = ClientSize.Width - StatsPanelWidth - 12;
-        int panelY = UiTopBar.BarHeight + 8;
-        int row = 0;
-
-        for (int i = 0; i < aliveCount; i++)
-        {
-            Colony colony = colonies[i];
-            int cardY = panelY + row * (StatsCardHeight + StatsCardSpacing);
-            DrawStatsCard(canvas, colony, panelX, cardY, false);
-            row++;
-        }
-
-        for (int i = 0; i < deadCount; i++)
-        {
-            Colony colony = dead[i];
-            int cardY = panelY + row * (StatsCardHeight + StatsCardSpacing);
-            DrawStatsCard(canvas, colony, panelX, cardY, true);
-            row++;
-        }
-    }
-
-    private void DrawStatsCard(SKCanvas canvas, Colony colony, int x, int y, bool isDead)
-    {
-        SKColor colonyColor = colony.CachedSkColor;
-        _paints.SharedFill.Color = UiTheme.BgPanel;
-        _paints.SharedBorder.Color = UiTheme.BorderSubtle;
-        _paints.SharedBorder.StrokeWidth = UiTheme.BorderThin;
-        UiPanel.DrawWithBorder(canvas, _paints.SharedFill, _paints.SharedBorder, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
-        float healthFraction = colony.NestHealthFraction;
-
-        if (healthFraction < 0f) healthFraction = 0f;
-        if (healthFraction > 1f) healthFraction = 1f;
-
-        float barWidth = (StatsPanelWidth - 2f) * healthFraction;
-
-        if (barWidth > 0f)
-        {
-            _paints.SharedFill.Color = colonyColor;
-            canvas.DrawRect(x + 1f, y + 1f, barWidth, 6f, _paints.SharedFill);
-        }
-
-        float pad = StatsCardPadding;
-        float textX = x + pad;
-        float curY = y + 24f;
-
-        _paints.SharedText.Color = UiTheme.TextStrong;
-        string headerLine = "Ants " + colony.Ants.Count + "   Food " + colony.NestFood;
-        canvas.DrawText(headerLine, textX, curY, _paints.SharedText);
-        curY += 10f;
-
-        float graphW = StatsPanelWidth - pad * 2f;
-        float graphH = StatsGraphHeight + 8f;
-        _paints.SharedFill.Color = UiTheme.BgPanelAlt;
-        canvas.DrawRect(textX, curY, graphW, graphH, _paints.SharedFill);
-        DrawPopulationGraph(canvas, colony, textX + 2f, curY + 2f, graphW - 4f, graphH - 4f);
-        curY += graphH + 6f;
-
-        _paints.SharedText.Color = UiTheme.TextBody;
-        DrawRoleBreakdown(canvas, colony, textX, curY);
-        curY += StatsLineHeight * 4f + 4f;
-
-        DrawQueenIntent(canvas, colony, textX, curY);
-
-        if (isDead)
-        {
-            _paints.SharedFill.Color = new SKColor(0, 0, 0, 160);
-            UiPanel.Draw(canvas, _paints.SharedFill, x, y, StatsPanelWidth, StatsCardHeight, UiTheme.CornerMedium);
-
-            float elapsed = _world.SimulationTime - colony.DeathTime;
-            if (elapsed < 0f) elapsed = 0f;
-            string label = "DEAD - " + colony.DeathReason + " (" + ((int)elapsed) + "s ago)";
-            _paints.SharedText.Color = UiTheme.TextStrong;
-            float tw = _paints.SharedText.MeasureText(label);
-            canvas.DrawText(label, x + (StatsPanelWidth - tw) / 2f, y + StatsCardHeight / 2f - _textMetrics.Ascent / 2f, _paints.SharedText);
-        }
-    }
-
-    private void DrawRoleBreakdown(SKCanvas canvas, Colony colony, float x, float y)
-    {
-        int total = colony.Ants.Count;
-        if (total < 1) total = 1;
-        DrawRoleRow(canvas, "Scouts:", colony.ScoutCount, total, ScoutBarColor, x, y);
-        DrawRoleRow(canvas, "Foragers:", colony.ForagerCount, total, ForagerBarColor, x, y + StatsLineHeight);
-        DrawRoleRow(canvas, "Defenders:", colony.DefenderCount, total, DefenderBarColor, x, y + StatsLineHeight * 2);
-        DrawRoleRow(canvas, "Attackers:", colony.AttackerCount, total, AttackerBarColor, x, y + StatsLineHeight * 3);
-    }
-
-    private void DrawRoleRow(SKCanvas canvas, string label, int count, int total, SKColor barColor, float x, float y)
-    {
-        _paints.SharedText.Color = UiTheme.TextBody;
-        canvas.DrawText(label, x, y + 11, _paints.SharedText);
-
-        string countStr = count.ToString(CultureInfo.InvariantCulture);
-        float labelW = _paints.SharedText.MeasureText(label);
-        _paints.SharedText.Color = UiTheme.TextStrong;
-        canvas.DrawText(countStr, x + labelW + 6f, y + 11, _paints.SharedText);
-
-        float barX = x + 120f;
-        float barY = y + 3f;
-        float barH = StatsRoleBarHeight + 2f;
-
-        _paints.SharedFill.Color = UiTheme.BgPanelHover;
-        canvas.DrawRect(barX, barY, StatsRoleBarWidth, barH, _paints.SharedFill);
-
-        float fraction = (float)count / (float)total;
-        float filledW = fraction * StatsRoleBarWidth;
-        if (filledW > 1f)
-        {
-            _paints.SharedFill.Color = barColor;
-            canvas.DrawRect(barX, barY, filledW, barH, _paints.SharedFill);
-        }
-    }
-
-    private void DrawQueenIntent(SKCanvas canvas, Colony colony, float x, float y)
-    {
-        QueenIntent intent = colony.RoleQuota.GetCurrentIntent(colony);
-        _paints.SharedText.Color = UiTheme.TextMuted;
-        canvas.DrawText("Queen: " + intent.Plan, x, y + 11, _paints.SharedText);
-
-        float defenseY = y + StatsLineHeight;
-        DrawSignalBar(canvas, "Defense:", colony.Defense, DefenseBarColor, x, defenseY);
-
-        float offenseY = defenseY + StatsLineHeight;
-        DrawSignalBar(canvas, "Offense:", colony.Offense, OffenseBarColor, x, offenseY);
-    }
-
-    private void DrawSignalBar(SKCanvas canvas, string label, float value, SKColor barColor, float x, float y)
-    {
-        _paints.SharedText.Color = UiTheme.TextMuted;
-        canvas.DrawText(label, x, y + 11, _paints.SharedText);
-
-        float barX = x + 60f;
-        float barY = y + 3f;
-        float barW = StatsRoleBarWidth + 34f;
-        float barH = StatsRoleBarHeight + 2f;
-
-        _paints.SharedFill.Color = UiTheme.BgPanelHover;
-        canvas.DrawRect(barX, barY, barW, barH, _paints.SharedFill);
-
-        float filled = value * barW;
-        if (filled > 1f)
-        {
-            _paints.SharedFill.Color = barColor;
-            canvas.DrawRect(barX, barY, filled, barH, _paints.SharedFill);
-        }
-    }
-
-    private void DrawPopulationGraph(SKCanvas canvas, Colony colony, float x, float y, float width, float height)
-    {
-        ColonyStats stats = colony.Stats;
-        int samples = stats.ValidSamples;
-        if (samples < 2) return;
-
-        int maxPopulation = stats.GetMaxPopulation();
-        if (maxPopulation < 1) maxPopulation = 1;
-
-        using SKPath fillPath = new SKPath();
-        using SKPath linePath = new SKPath();
-
-        float stepX = width / (float)(ColonyStats.SampleCount - 1);
-        float bottom = y + height;
-
-        for (int i = 0; i < samples; i++)
-        {
-            float px = x + i * stepX;
-            int pop = stats.GetPopulationAt(i);
-            float py = bottom - (pop / (float)maxPopulation) * height;
-            if (i == 0)
-            {
-                fillPath.MoveTo(px, bottom);
-                fillPath.LineTo(px, py);
-                linePath.MoveTo(px, py);
-            }
-            else
-            {
-                fillPath.LineTo(px, py);
-                linePath.LineTo(px, py);
-            }
-        }
-
-        float lastX = x + (samples - 1) * stepX;
-        fillPath.LineTo(lastX, bottom);
-        fillPath.Close();
-
-        SKColor colonyColor = colony.CachedSkColor;
-        _paints.SharedFill.Color = new SKColor(colonyColor.Red, colonyColor.Green, colonyColor.Blue, 70);
-        canvas.DrawPath(fillPath, _paints.SharedFill);
-
-        _paints.SharedStroke.Color = colony.CachedSkColor;
-        _paints.SharedStroke.StrokeWidth = 2f;
-        _paints.SharedStroke.IsAntialias = true;
-        canvas.DrawPath(linePath, _paints.SharedStroke);
-
-        int maxFood = stats.GetMaxFood();
-        if (maxFood < 1) maxFood = 1;
-        using SKPath foodLinePath = new SKPath();
-        for (int i = 0; i < samples; i++)
-        {
-            float px = x + i * stepX;
-            int food = stats.GetFoodAt(i);
-            float py = bottom - (food / (float)maxFood) * height;
-            if (i == 0)
-                foodLinePath.MoveTo(px, py);
-            else
-                foodLinePath.LineTo(px, py);
-        }
-        _paints.SharedStroke.Color = _foodSkColor;
-        _paints.SharedStroke.StrokeWidth = 1.5f;
-        canvas.DrawPath(foodLinePath, _paints.SharedStroke);
-
-        _paints.SharedStroke.IsAntialias = false;
-        _paints.SharedStroke.StrokeWidth = 1f;
-    }
-
     private void OnSkPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
     {
         SKCanvas canvas = e.Surface.Canvas;
@@ -715,10 +461,7 @@ public partial class Engine : Form
             canvas.DrawPicture(_topBarPicture);
         }
 
-        if (_statsPicture != null)
-        {
-            canvas.DrawPicture(_statsPicture);
-        }
+        _statsRenderer.Draw(canvas);
 
         if (_buttonsDirty)
         {
