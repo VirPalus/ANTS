@@ -17,6 +17,12 @@ using System.Threading;
 /// output location there so the files are easy to locate via
 /// %TEMP% and don't clutter the install directory.
 ///
+/// fase-4.12-fix3-v2: CSV rows now represent 60 Hz MAX-aggregated
+/// buckets rather than per-render-frame samples. A new column
+/// <c>renderFramesAggregated</c> (3rd column) reports how many
+/// render frames contributed to the bucket, so offline analysis
+/// can distinguish "single render frame" from "dozens merged".
+///
 /// Lifecycle:
 ///   * Construct (in <see cref="FrameProfiler.Enable"/>, lazy).
 ///   * <see cref="Start"/> — opens the first CSV file, spawns the
@@ -51,7 +57,7 @@ public sealed class ProfileWriter : IDisposable
     private const int DrainBatch = 2048;
 
     private static readonly string CsvHeaderLine =
-        "frame,ts_ms,sim_us,world_us,overlay_us,ants_us,stats_us,hud_us,paint_us," +
+        "frame,ts_ms,renderFramesAggregated,sim_us,world_us,overlay_us,ants_us,stats_us,hud_us,paint_us," +
         "grid_us,food_us,nests_us,clear_us,inner_us,marshal_us,bitmap_us," +
         "canvasSetup_us,placement_us,selection_us,buttons_us,profilerWindow_us";
 
@@ -226,6 +232,8 @@ public sealed class ProfileWriter : IDisposable
                 sb.Append(s.FrameNumber.ToString(CultureInfo.InvariantCulture));
                 sb.Append(',');
                 sb.Append((relTicks * tickToMs).ToString("F3", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append(s.RenderFramesAggregated.ToString(CultureInfo.InvariantCulture));
                 sb.Append(',');
                 sb.Append((s.SimTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
                 sb.Append(',');

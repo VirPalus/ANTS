@@ -9,6 +9,21 @@ using SkiaSharp;
 /// Draggable, resizable floating window that hosts 3 profiler
 /// sub-graphs (frame timing, world-render split, overlay internals).
 ///
+/// fase-4.12-fix3-v2 overhaul:
+///   * Cache invalidation keyed on
+///     <see cref="ProfilerSeries.Revision"/>, not
+///     <c>Series.Count</c>. The old check broke once the fix3-v1
+///     ring buffer saturated at 18000 because <c>Count</c> stopped
+///     advancing — the picture cache was never rebuilt and the
+///     graph visibly froze.
+///   * Horizontal scrollbar + Live button below the content area.
+///     Users can drag the thumb to pan through the unbounded
+///     history; Live re-enables auto-follow (re-pins to newest).
+///   * 9 zoom levels (1s/5s/15s/30s/1m/5m/15m/1h/all) via the
+///     expanded <see cref="ProfilerZoomLevel"/> enum.
+///   * Panels receive an absolute <c>(windowStart, windowCount)</c>
+///     range — scrollback shows historical slices losslessly.
+///
 /// Lifecycle:
 ///   * Constructed once in <see cref="Engine"/>.
 ///   * Hidden by default; <see cref="Show"/> is called when the user
@@ -20,16 +35,15 @@ using SkiaSharp;
 ///     <see cref="HandleMouseDown"/>/<see cref="HandleMouseMove"/>/<see cref="HandleMouseUp"/>
 ///     before any other UI target when the window is visible.
 ///   * Returns <c>true</c> from HandleMouseDown when the click is
-///     consumed (inside window / on title bar / on a button).
+///     consumed (inside window / title bar / a button / the
+///     scrollbar thumb or track).
 ///
 /// Render cache:
 ///   * Hot-path <see cref="Draw"/> replays a cached
 ///     <see cref="SKPicture"/> most frames. The picture is rebuilt
-///     only when the window moves/resizes, the zoom level changes,
-///     or the profiler series has advanced AND the 50 ms throttle
-///     has elapsed. Reduces profiler paint cost from ~44 us/frame
-///     (rebuild every frame) to ~15 us/frame (rebuild 1-in-3 at
-///     60 FPS, replay between).
+///     only when the window moves/resizes, zoom/lock/scroll state
+///     changes, or the series Revision has advanced AND the 50 ms
+///     throttle has elapsed.
 ///
 /// Y-axis lock:
 ///   * The Pin/Lock button in the titlebar toggles
@@ -47,6 +61,15 @@ public sealed class ProfilerGraphWindow : IDisposable
     public const float MinHeight = 400f;
     public const float TitleBarHeight = 24f;
     public const float ResizeHandleSize = 14f;
+
+    /// <summary>Height of the scrollbar strip at the bottom of the content area.</summary>
+    public const float ScrollbarHeight = 18f;
+
+    /// <summary>Width of the "Live" button flush-right of the scrollbar track.</summary>
+    public const float LiveButtonWidth = 44f;
+
+    /// <summary>Minimum rendered thumb width (px) regardless of visible fraction.</summary>
+    public const float MinThumbWidth = 24f;
 
     private readonly FrameProfiler _profiler;
     private readonly Func<Size> _clientSizeGetter;
@@ -94,21 +117,41 @@ public sealed class ProfilerGraphWindow : IDisposable
     private SKRect _zoomInRect;
     private SKRect _lockRect;
 
+    // Scrollbar + Live button geometry (recomputed every rebuild).
+    private SKRect _scrollbarTrackRect;
+    private SKRect _scrollbarThumbRect;
+    private SKRect _liveButtonRect;
+
     // Y-axis Pin/Lock toggle — frozen EMA ceiling in every panel
     // when true. Toggled via the titlebar Lock button.
     private bool _yAxisLocked;
 
-    // Render cache: rebuild only when the layout or data changes,
+    // Scrollback state. _autoFollow == true pins the window end to
+    // the latest sample. When false, _windowEndIndex is an absolute
+    // index into ProfilerSeries fixed by the scrollbar drag.
+    private bool _autoFollow = true;
+    private long _windowEndIndex;
+
+    // Scrollbar drag state.
+    private bool _scrollbarDragging;
+    private float _scrollbarDragStartX;
+    private long _scrollbarDragStartWindowEnd;
+    private long _scrollbarDragMaxEnd;
+    private int _scrollbarDragWindowSize;
+
+    // Render cache: rebuild only when layout/data/state changes,
     // and at most once per 50 ms.
     private SKPicture? _cachedPicture;
     private long _lastBuildTimestampTicks;
-    private int _lastCachedSeriesCount = -1;
+    private long _lastCachedRevision = -1;
     private float _lastCachedX = float.NaN;
     private float _lastCachedY = float.NaN;
     private float _lastCachedW = float.NaN;
     private float _lastCachedH = float.NaN;
     private ProfilerZoomLevel _lastCachedZoom = (ProfilerZoomLevel)(-1);
     private bool _lastCachedYAxisLocked;
+    private bool _lastCachedAutoFollow;
+    private long _lastCachedWindowEnd = -1;
     private static readonly long RebuildIntervalStopwatchTicks = Stopwatch.Frequency / 20; // 50 ms
 
     private bool _disposed;
@@ -157,6 +200,7 @@ public sealed class ProfilerGraphWindow : IDisposable
         _visible = false;
         _dragging = false;
         _resizing = false;
+        _scrollbarDragging = false;
     }
 
     public void Toggle()
@@ -166,7 +210,8 @@ public sealed class ProfilerGraphWindow : IDisposable
 
     /// <summary>
     /// Consumes mouse-down inside the window, its title bar, any of
-    /// its buttons, or the resize grip. Returns true if consumed.
+    /// its buttons, the scrollbar, the Live button, or the resize
+    /// grip. Returns true if consumed.
     /// </summary>
     public bool HandleMouseDown(int mx, int my)
     {
@@ -191,6 +236,23 @@ public sealed class ProfilerGraphWindow : IDisposable
         if (_lockRect.Contains(mx, my))
         {
             _yAxisLocked = !_yAxisLocked;
+            return true;
+        }
+        if (_liveButtonRect.Contains(mx, my))
+        {
+            _autoFollow = true;
+            return true;
+        }
+        if (_scrollbarThumbRect.Contains(mx, my))
+        {
+            BeginScrollbarDrag(mx);
+            return true;
+        }
+        if (_scrollbarTrackRect.Contains(mx, my))
+        {
+            // Click-in-track jumps the thumb to the click position.
+            BeginScrollbarDrag(mx);
+            JumpScrollbarTo(mx);
             return true;
         }
         if (InResizeGrip(mx, my))
@@ -231,27 +293,54 @@ public sealed class ProfilerGraphWindow : IDisposable
             _h = MathF.Max(MinHeight, _resizeStartH + dy);
             ClampSize();
         }
+        else if (_scrollbarDragging)
+        {
+            UpdateScrollbarDrag(mx);
+        }
     }
 
     public void HandleMouseUp()
     {
         _dragging = false;
         _resizing = false;
+        _scrollbarDragging = false;
     }
 
     /// <summary>
     /// Paints the window via the cached <see cref="SKPicture"/> when
-    /// possible (see class-level Render cache note). Rebuilds the
-    /// picture only on layout/data/throttle changes. Zero-cost
-    /// early-out when hidden or profiler is off.
+    /// possible. Rebuilds only on layout / Revision / scroll state
+    /// changes, throttled to 50 ms. Zero-cost early-out when hidden
+    /// or profiler is off.
     /// </summary>
     public void Draw(SKCanvas canvas)
     {
         if (!_visible) return;
         if (!_profiler.IsEnabled) return;
 
+        // Resolve current window indices. autoFollow pins to newest;
+        // otherwise _windowEndIndex is honoured (clamped to valid).
+        int totalCount = _profiler.Series.Count;
+        int wantSamples = _config.GetSampleCount();
+        int windowSize = (wantSamples == ProfilerGraphConfig.AllSentinel) ? totalCount : wantSamples;
+        if (windowSize > totalCount) windowSize = totalCount;
+        if (windowSize < 1) windowSize = 1;
+
+        long windowEnd;
+        if (_autoFollow)
+        {
+            windowEnd = totalCount;
+            _windowEndIndex = windowEnd;
+        }
+        else
+        {
+            windowEnd = _windowEndIndex;
+            if (windowEnd > totalCount) windowEnd = totalCount;
+            if (windowEnd < windowSize) windowEnd = windowSize;
+            _windowEndIndex = windowEnd;
+        }
+
         long now = Stopwatch.GetTimestamp();
-        int seriesCount = _profiler.Series.Count;
+        long revision = _profiler.Series.Revision;
 
         bool sameLayout = _cachedPicture != null
                        && _lastCachedX == _x
@@ -259,9 +348,11 @@ public sealed class ProfilerGraphWindow : IDisposable
                        && _lastCachedW == _w
                        && _lastCachedH == _h
                        && _lastCachedZoom == _config.Zoom
-                       && _lastCachedYAxisLocked == _yAxisLocked;
+                       && _lastCachedYAxisLocked == _yAxisLocked
+                       && _lastCachedAutoFollow == _autoFollow
+                       && _lastCachedWindowEnd == windowEnd;
         bool withinThrottle = (now - _lastBuildTimestampTicks) < RebuildIntervalStopwatchTicks;
-        bool dataUnchanged = seriesCount == _lastCachedSeriesCount;
+        bool dataUnchanged = revision == _lastCachedRevision;
 
         if (sameLayout && (dataUnchanged || withinThrottle))
         {
@@ -275,31 +366,33 @@ public sealed class ProfilerGraphWindow : IDisposable
         using (SKPictureRecorder recorder = new SKPictureRecorder())
         {
             SKCanvas rec = recorder.BeginRecording(winRect);
-            DrawFrame(rec);
+            DrawFrame(rec, windowEnd, windowSize, totalCount);
             newPicture = recorder.EndRecording();
         }
 
         _cachedPicture?.Dispose();
         _cachedPicture = newPicture;
         _lastBuildTimestampTicks = now;
-        _lastCachedSeriesCount = seriesCount;
+        _lastCachedRevision = revision;
         _lastCachedX = _x;
         _lastCachedY = _y;
         _lastCachedW = _w;
         _lastCachedH = _h;
         _lastCachedZoom = _config.Zoom;
         _lastCachedYAxisLocked = _yAxisLocked;
+        _lastCachedAutoFollow = _autoFollow;
+        _lastCachedWindowEnd = windowEnd;
 
         canvas.DrawPicture(_cachedPicture);
     }
 
     /// <summary>
     /// Records one full frame of the window: background, title bar,
-    /// buttons, sub-graphs, resize grip. Called into an
+    /// buttons, sub-graphs, scrollbar, resize grip. Called into an
     /// <see cref="SKPictureRecorder"/> canvas, never directly to the
     /// screen — <see cref="Draw"/> replays the resulting picture.
     /// </summary>
-    private void DrawFrame(SKCanvas canvas)
+    private void DrawFrame(SKCanvas canvas, long windowEnd, int windowSize, int totalCount)
     {
         // Window background + border.
         SKRect winRect = new SKRect(_x, _y, _x + _w, _y + _h);
@@ -351,9 +444,10 @@ public sealed class ProfilerGraphWindow : IDisposable
         // Populate metric arrays for the three panels.
         BuildActiveMetrics();
 
-        // Content layout (below title, above resize grip).
+        // Content layout: below title, above scrollbar + resize grip.
         float contentTop = _y + TitleBarHeight + 4f;
-        float contentBottom = _y + _h - ResizeHandleSize - 2f;
+        float scrollbarTop = _y + _h - ResizeHandleSize - ScrollbarHeight - 2f;
+        float contentBottom = scrollbarTop - 2f;
         float contentH = contentBottom - contentTop;
         if (contentH < 60f) return;
 
@@ -362,19 +456,25 @@ public sealed class ProfilerGraphWindow : IDisposable
         float panelX = _x + 6f;
         float panelW = _w - 12f;
 
-        int wantSamples = _config.GetSampleCount();
+        long windowStart = windowEnd - windowSize;
+        if (windowStart < 0) windowStart = 0;
+        int windowCount = (int)(windowEnd - windowStart);
+        int startInt = (int)windowStart;
 
         SKRect rect1 = new SKRect(panelX, contentTop, panelX + panelW, contentTop + panelH);
-        _panel1.Draw(canvas, rect1, "Frame timing", "ms", _profiler.Series, wantSamples,
+        _panel1.Draw(canvas, rect1, "Frame timing", "ms", _profiler.Series, startInt, windowCount,
             _panel1Metrics, _panel1Count, _yAxisLocked);
 
         SKRect rect2 = new SKRect(panelX, rect1.Bottom + interPanelGap, panelX + panelW, rect1.Bottom + interPanelGap + panelH);
-        _panel2.Draw(canvas, rect2, "World renderers", "ms", _profiler.Series, wantSamples,
+        _panel2.Draw(canvas, rect2, "World renderers", "ms", _profiler.Series, startInt, windowCount,
             _panel2Metrics, _panel2Count, _yAxisLocked);
 
         SKRect rect3 = new SKRect(panelX, rect2.Bottom + interPanelGap, panelX + panelW, rect2.Bottom + interPanelGap + panelH);
-        _panel3.Draw(canvas, rect3, "Overlay internals", "us", _profiler.Series, wantSamples,
+        _panel3.Draw(canvas, rect3, "Overlay internals", "us", _profiler.Series, startInt, windowCount,
             _panel3Metrics, _panel3Count, _yAxisLocked);
+
+        // Scrollbar strip.
+        DrawScrollbar(canvas, scrollbarTop, windowEnd, windowSize, totalCount);
 
         // Resize grip (bottom-right corner triangle).
         _fillPaint.Color = UiTheme.BorderStrong;
@@ -391,11 +491,214 @@ public sealed class ProfilerGraphWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// Renders the bottom scrollbar strip: track, thumb, and the
+    /// flush-right Live button. Thumb width encodes the visible
+    /// fraction of total history; position encodes the scroll
+    /// offset. Live highlights green while <see cref="_autoFollow"/>
+    /// is engaged.
+    /// </summary>
+    private void DrawScrollbar(SKCanvas canvas, float stripTop, long windowEnd, int windowSize, int totalCount)
+    {
+        float leftPad = 6f;
+        float rightPad = 6f;
+        float liveButtonGap = 4f;
+        float stripLeft = _x + leftPad;
+        float stripRight = _x + _w - rightPad;
+        float liveLeft = stripRight - LiveButtonWidth;
+        float trackLeft = stripLeft;
+        float trackRight = liveLeft - liveButtonGap;
+        if (trackRight <= trackLeft + MinThumbWidth)
+        {
+            trackRight = trackLeft + MinThumbWidth;
+        }
+
+        _scrollbarTrackRect = new SKRect(trackLeft, stripTop, trackRight, stripTop + ScrollbarHeight);
+        _liveButtonRect = new SKRect(liveLeft, stripTop, liveLeft + LiveButtonWidth, stripTop + ScrollbarHeight);
+
+        // Track background.
+        _fillPaint.Color = UiTheme.BgPanelHover;
+        canvas.DrawRect(_scrollbarTrackRect, _fillPaint);
+        _strokePaint.Color = UiTheme.BorderSubtle;
+        _strokePaint.StrokeWidth = UiTheme.BorderThin;
+        canvas.DrawRect(_scrollbarTrackRect, _strokePaint);
+
+        // Thumb geometry.
+        float trackWidth = trackRight - trackLeft;
+        float thumbW;
+        float thumbLeft;
+        if (totalCount <= 0)
+        {
+            thumbW = trackWidth;
+            thumbLeft = trackLeft;
+        }
+        else
+        {
+            float frac = (float)windowSize / (float)totalCount;
+            if (frac > 1f) frac = 1f;
+            thumbW = trackWidth * frac;
+            if (thumbW < MinThumbWidth) thumbW = MinThumbWidth;
+            if (thumbW > trackWidth) thumbW = trackWidth;
+
+            // Scroll position: where along the track does the
+            // window end sit? Range [windowSize .. totalCount].
+            long minEnd = windowSize;
+            long maxEnd = totalCount;
+            float denom = (float)(maxEnd - minEnd);
+            float pos = denom <= 0f ? 1f : (float)(windowEnd - minEnd) / denom;
+            if (pos < 0f) pos = 0f;
+            if (pos > 1f) pos = 1f;
+            thumbLeft = trackLeft + (trackWidth - thumbW) * pos;
+        }
+        _scrollbarThumbRect = new SKRect(thumbLeft, stripTop + 2f, thumbLeft + thumbW, stripTop + ScrollbarHeight - 2f);
+
+        _fillPaint.Color = _scrollbarDragging ? UiTheme.BgPanelActive : UiTheme.BorderStrong;
+        canvas.DrawRect(_scrollbarThumbRect, _fillPaint);
+
+        // Live button.
+        _fillPaint.Color = _autoFollow ? new SKColor(70, 140, 70) : UiTheme.BgPanelHover;
+        canvas.DrawRect(_liveButtonRect, _fillPaint);
+        _strokePaint.Color = UiTheme.BorderSubtle;
+        canvas.DrawRect(_liveButtonRect, _strokePaint);
+        _textPaint.TextSize = UiTheme.FontTiny;
+        _textPaint.Color = _autoFollow ? UiTheme.TextStrong : UiTheme.TextMuted;
+        canvas.DrawText("Live", _liveButtonRect.Left + 10f, _liveButtonRect.Top + 12f, _textPaint);
+    }
+
+    /// <summary>
+    /// Begins dragging the scrollbar thumb — captures the anchor
+    /// and current window geometry so subsequent
+    /// <see cref="UpdateScrollbarDrag"/> calls can map cursor delta
+    /// to a new <see cref="_windowEndIndex"/>.
+    /// </summary>
+    private void BeginScrollbarDrag(int mx)
+    {
+        _scrollbarDragging = true;
+        _autoFollow = false;
+        _scrollbarDragStartX = mx;
+        _scrollbarDragStartWindowEnd = _windowEndIndex;
+
+        int totalCount = _profiler.Series.Count;
+        int wantSamples = _config.GetSampleCount();
+        int windowSize = (wantSamples == ProfilerGraphConfig.AllSentinel) ? totalCount : wantSamples;
+        if (windowSize > totalCount) windowSize = totalCount;
+        if (windowSize < 1) windowSize = 1;
+        _scrollbarDragWindowSize = windowSize;
+        _scrollbarDragMaxEnd = totalCount;
+    }
+
+    /// <summary>
+    /// Maps a mouse-move delta since <see cref="BeginScrollbarDrag"/>
+    /// into a new <see cref="_windowEndIndex"/>. Clamped so the
+    /// window never exceeds the bounds of the recorded series.
+    /// </summary>
+    private void UpdateScrollbarDrag(int mx)
+    {
+        float trackWidth = _scrollbarTrackRect.Width;
+        if (trackWidth <= 0f) return;
+        float dx = mx - _scrollbarDragStartX;
+        long minEnd = _scrollbarDragWindowSize;
+        long maxEnd = _scrollbarDragMaxEnd;
+        if (maxEnd < minEnd) maxEnd = minEnd;
+        long span = maxEnd - minEnd;
+        if (span <= 0)
+        {
+            _windowEndIndex = maxEnd;
+            return;
+        }
+        long delta = (long)(dx / trackWidth * span);
+        long newEnd = _scrollbarDragStartWindowEnd + delta;
+        if (newEnd < minEnd) newEnd = minEnd;
+        if (newEnd > maxEnd) newEnd = maxEnd;
+        _windowEndIndex = newEnd;
+    }
+
+    /// <summary>
+    /// Jumps the window end so that the thumb center aligns with
+    /// the click position inside the track. Used for click-in-track
+    /// paging.
+    /// </summary>
+    private void JumpScrollbarTo(int mx)
+    {
+        float trackWidth = _scrollbarTrackRect.Width;
+        if (trackWidth <= 0f) return;
+        float rel = (mx - _scrollbarTrackRect.Left) / trackWidth;
+        if (rel < 0f) rel = 0f;
+        if (rel > 1f) rel = 1f;
+        long minEnd = _scrollbarDragWindowSize;
+        long maxEnd = _scrollbarDragMaxEnd;
+        if (maxEnd < minEnd) maxEnd = minEnd;
+        long span = maxEnd - minEnd;
+        long newEnd = minEnd + (long)(rel * span);
+        if (newEnd < minEnd) newEnd = minEnd;
+        if (newEnd > maxEnd) newEnd = maxEnd;
+        _windowEndIndex = newEnd;
+        _scrollbarDragStartX = mx;
+        _scrollbarDragStartWindowEnd = newEnd;
+    }
+
+    /// <summary>
+    /// Populates the three panel metric arrays from the current
+    /// <see cref="_config"/> toggles. Only metrics whose Show flag
+    /// is true are drawn. Indices map to
+    /// <see cref="ProfilerSeries"/> metric columns.
+    /// </summary>
+    private void BuildActiveMetrics()
+    {
+        _panel1Count = 0;
+        if (_config.ShowFrameMs)   _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(0, "frame", UiTheme.ChartLine1);
+        if (_config.ShowSimMs)     _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(1, "sim",   UiTheme.ChartLine2);
+        if (_config.ShowGridMs)    _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(2, "grid",  UiTheme.ChartLine3);
+        if (_config.ShowOverlayMs) _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(3, "ovly",  UiTheme.ChartLine4);
+        if (_config.ShowAntsMs)    _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(6, "ants",  UiTheme.ChartLine5);
+        if (_config.ShowStatsMs)   _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(7, "stats", UiTheme.ChartLine6);
+        if (_config.ShowHudMs)     _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(8, "hud",   UiTheme.ChartLine7);
+
+        _panel2Count = 0;
+        if (_config.ShowGridMs)    _panel2Metrics[_panel2Count++] = new ProfilerGraphPanel.MetricLine(2, "grid",  UiTheme.ChartLine3);
+        if (_config.ShowFoodMs)    _panel2Metrics[_panel2Count++] = new ProfilerGraphPanel.MetricLine(4, "food",  UiTheme.ChartLine4);
+        if (_config.ShowNestsMs)   _panel2Metrics[_panel2Count++] = new ProfilerGraphPanel.MetricLine(5, "nests", UiTheme.ChartLine5);
+
+        _panel3Count = 0;
+        if (_config.ShowArrayClearUs)  _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(9,  "clear",  UiTheme.ChartLine1);
+        if (_config.ShowInnerLoopUs)   _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(10, "inner",  UiTheme.ChartLine2);
+        if (_config.ShowMarshalCopyUs) _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(11, "copy",   UiTheme.ChartLine3);
+        if (_config.ShowDrawBitmapUs)  _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(12, "bitmap", UiTheme.ChartLine4);
+    }
+
+    private bool ContainsPoint(int mx, int my)
+    {
+        return mx >= _x && mx <= _x + _w && my >= _y && my <= _y + _h;
+    }
+
+    private bool InResizeGrip(int mx, int my)
+    {
+        return mx >= _x + _w - ResizeHandleSize
+            && mx <= _x + _w
+            && my >= _y + _h - ResizeHandleSize
+            && my <= _y + _h;
+    }
+
+    private void ClampToClient()
+    {
+        Size size = _clientSizeGetter();
+        if (_x < 0f) _x = 0f;
+        if (_y < 0f) _y = 0f;
+        if (_x + _w > size.Width) _x = MathF.Max(0f, size.Width - _w);
+        if (_y + _h > size.Height) _y = MathF.Max(0f, size.Height - _h);
+    }
+
+    private void ClampSize()
+    {
+        Size size = _clientSizeGetter();
+        if (_x + _w > size.Width) _w = MathF.Max(MinWidth, size.Width - _x);
+        if (_y + _h > size.Height) _h = MathF.Max(MinHeight, size.Height - _y);
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _cachedPicture?.Dispose();
-        _cachedPicture = null;
         _panel1.Dispose();
         _panel2.Dispose();
         _panel3.Dispose();
@@ -403,82 +706,5 @@ public sealed class ProfilerGraphWindow : IDisposable
         _strokePaint.Dispose();
         _textPaint.Dispose();
         _disposed = true;
-    }
-
-    private bool ContainsPoint(float mx, float my)
-    {
-        return mx >= _x && mx <= _x + _w && my >= _y && my <= _y + _h;
-    }
-
-    private bool InResizeGrip(float mx, float my)
-    {
-        float right = _x + _w;
-        float bottom = _y + _h;
-        return mx >= right - ResizeHandleSize && my >= bottom - ResizeHandleSize
-            && mx <= right && my <= bottom;
-    }
-
-    private void ClampToClient()
-    {
-        Size size = _clientSizeGetter();
-        float maxX = size.Width - _w;
-        float maxY = size.Height - _h;
-        if (maxX < 0f) maxX = 0f;
-        if (maxY < 0f) maxY = 0f;
-        if (_x < 0f) _x = 0f;
-        if (_y < 0f) _y = 0f;
-        if (_x > maxX) _x = maxX;
-        if (_y > maxY) _y = maxY;
-    }
-
-    private void ClampSize()
-    {
-        Size size = _clientSizeGetter();
-        float maxW = size.Width - _x - 4f;
-        float maxH = size.Height - _y - 4f;
-        if (maxW < MinWidth) maxW = MinWidth;
-        if (maxH < MinHeight) maxH = MinHeight;
-        if (_w > maxW) _w = maxW;
-        if (_h > maxH) _h = maxH;
-    }
-
-    private void BuildActiveMetrics()
-    {
-        _panel1Count = 0;
-        _panel2Count = 0;
-        _panel3Count = 0;
-
-        // Panel 1 — frame timing (ms).
-        SKColor frameCol   = new SKColor(230, 230, 240);
-        SKColor simCol     = new SKColor(120, 200, 255);
-        SKColor gridCol    = new SKColor(255, 180, 100);
-        SKColor overlayCol = new SKColor(255, 120, 180);
-        SKColor antsCol    = new SKColor(120, 255, 160);
-        SKColor statsCol   = new SKColor(200, 140, 255);
-        SKColor hudCol     = new SKColor(255, 220, 120);
-        if (_config.ShowFrameMs)   _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(0, "Frame", frameCol);
-        if (_config.ShowSimMs)     _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(1, "Sim", simCol);
-        if (_config.ShowGridMs)    _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(2, "Grid", gridCol);
-        if (_config.ShowOverlayMs) _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(3, "Overlay", overlayCol);
-        if (_config.ShowAntsMs)    _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(6, "Ants", antsCol);
-        if (_config.ShowStatsMs)   _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(7, "Stats", statsCol);
-        if (_config.ShowHudMs)     _panel1Metrics[_panel1Count++] = new ProfilerGraphPanel.MetricLine(8, "Hud", hudCol);
-
-        // Panel 2 — world renderers (Grid/Food/Nests) in ms.
-        SKColor foodCol    = new SKColor(255, 140, 140);
-        SKColor nestsCol   = new SKColor(200, 200, 120);
-        if (_config.ShowGridMs)    _panel2Metrics[_panel2Count++] = new ProfilerGraphPanel.MetricLine(2, "Grid", gridCol);
-        if (_config.ShowFoodMs)    _panel2Metrics[_panel2Count++] = new ProfilerGraphPanel.MetricLine(4, "Food", foodCol);
-        if (_config.ShowNestsMs)   _panel2Metrics[_panel2Count++] = new ProfilerGraphPanel.MetricLine(5, "Nests", nestsCol);
-
-        // Panel 3 — overlay internals (µs).
-        SKColor clearCol   = new SKColor(120, 220, 220);
-        SKColor innerCol   = new SKColor(255, 160, 60);
-        SKColor marshalCol = new SKColor(180, 120, 255);
-        SKColor bitmapCol  = new SKColor(120, 255, 220);
-        if (_config.ShowArrayClearUs)  _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(9, "Clear", clearCol);
-        if (_config.ShowInnerLoopUs)   _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(10, "Inner", innerCol);
-        if (_config.ShowMarshalCopyUs) _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(11, "Marshal", marshalCol);
-        if (_config.ShowDrawBitmapUs)  _panel3Metrics[_panel3Count++] = new ProfilerGraphPanel.MetricLine(12, "Bitmap", bitmapCol);
     }
 }

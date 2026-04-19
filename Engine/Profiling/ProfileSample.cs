@@ -1,36 +1,31 @@
 namespace ANTS;
 
 /// <summary>
-/// Per-frame timing data captured by <see cref="FrameProfiler"/>.
+/// Per-flush profiler sample captured by <see cref="FrameProfiler"/>.
 ///
-/// Fixed 128-byte value type (16 x long). Stored inline in a
-/// <see cref="RingBuffer{T}"/> on the hot path so that BeginFrame/
-/// EndFrame produce zero heap allocations.
+/// fase-4.12-fix3-v2: a sample now represents one 60 Hz bucket
+/// (~16.67 ms of wall-clock time). Each tick field stores the
+/// <b>MAX</b> value observed across all render frames that fell
+/// inside the bucket — spike-preserving aggregation. The new
+/// <see cref="RenderFramesAggregated"/> field records how many
+/// render frames contributed to this bucket.
 ///
 /// All tick fields are raw <see cref="System.Diagnostics.Stopwatch"/>
 /// tick deltas. Conversion to microseconds happens off the hot path
 /// (in <see cref="ProfileWriter"/> when formatting CSV rows).
 ///
-/// fase-4.12-fixup (variant A) extends this with 7 extra fields:
-///   * GridDrawTicks/FoodDrawTicks/NestsDrawTicks split the legacy
-///     WorldDraw phase inside <see cref="WorldRenderer"/> into 3
-///     independent measurements.
-///   * ArrayClearTicks/InnerLoopTicks/MarshalCopyTicks/DrawBitmapTicks
-///     are 4 inner-phase timings measured inside
-///     <see cref="OverlayRenderer.Draw"/> so the graph window can
-///     visualize pheromone-overlay internal bottlenecks.
-/// WorldDrawTicks remains in the struct layout for CSV-column
-/// stability but is not populated by the variant-A pipeline (set to
-/// 0). Consumers reading the ring buffer should prefer the
-/// Grid/Food/Nests triple instead.
+/// Pre-v2 this struct was captured once per render frame.
 /// </summary>
 public struct ProfileSample
 {
-    /// <summary>Monotonically increasing frame counter assigned by BeginFrame.</summary>
+    /// <summary>Logical profiler frame counter (60 Hz), assigned on flush.</summary>
     public long FrameNumber;
 
-    /// <summary>Stopwatch.GetTimestamp() captured at BeginFrame. Used to compute wall-clock offset from session start.</summary>
+    /// <summary>Stopwatch.GetTimestamp() captured at flush. Used to compute wall-clock offset from session start.</summary>
     public long TimestampTicks;
+
+    /// <summary>Number of render frames aggregated into this bucket (MAX over them).</summary>
+    public int RenderFramesAggregated;
 
     /// <summary>Simulation advance duration (Stopwatch ticks). Phase index <see cref="ProfilePhase.Sim"/>.</summary>
     public long SimTicks;

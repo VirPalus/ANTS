@@ -2,22 +2,38 @@ namespace ANTS;
 
 /// <summary>
 /// Zoom levels for the profiler graph x-axis (time range shown).
-/// The sample count maps to the last N frames out of
-/// <see cref="ProfilerSeries.SampleCapacity"/>.
+/// The sample count maps to the last N profiler samples
+/// (60 Hz / ProfilerSampleClock) to display.
+/// fase-4.12-fix3-v2 expanded the set from 4 to 9 levels.
 /// </summary>
 public enum ProfilerZoomLevel
 {
-    /// <summary>Last 600 frames (~10 s at 60 FPS).</summary>
-    X1 = 0,
+    /// <summary>Last 60 samples (~1 s at 60 Hz).</summary>
+    Sec1 = 0,
 
-    /// <summary>Last 3000 frames (~50 s at 60 FPS).</summary>
-    X5 = 1,
+    /// <summary>Last 300 samples (~5 s at 60 Hz).</summary>
+    Sec5 = 1,
 
-    /// <summary>Last 9000 frames (~2.5 min at 60 FPS).</summary>
-    X15 = 2,
+    /// <summary>Last 900 samples (~15 s at 60 Hz).</summary>
+    Sec15 = 2,
 
-    /// <summary>Last 18000 frames (~5 min at 60 FPS).</summary>
-    X30 = 3,
+    /// <summary>Last 1800 samples (~30 s at 60 Hz).</summary>
+    Sec30 = 3,
+
+    /// <summary>Last 3600 samples (~1 min at 60 Hz).</summary>
+    Min1 = 4,
+
+    /// <summary>Last 18000 samples (~5 min at 60 Hz).</summary>
+    Min5 = 5,
+
+    /// <summary>Last 54000 samples (~15 min at 60 Hz).</summary>
+    Min15 = 6,
+
+    /// <summary>Last 216000 samples (~1 h at 60 Hz).</summary>
+    Hour1 = 7,
+
+    /// <summary>Entire recorded history (oldest to newest).</summary>
+    All = 8,
 }
 
 /// <summary>
@@ -27,7 +43,10 @@ public enum ProfilerZoomLevel
 /// </summary>
 public sealed class ProfilerGraphConfig
 {
-    public ProfilerZoomLevel Zoom = ProfilerZoomLevel.X1;
+    /// <summary>Sentinel returned by <see cref="GetSampleCount"/> for <see cref="ProfilerZoomLevel.All"/>.</summary>
+    public const int AllSentinel = int.MaxValue;
+
+    public ProfilerZoomLevel Zoom = ProfilerZoomLevel.Sec30;
 
     // Sub-graph 1: frame timing (ms scale).
     public bool ShowFrameMs = true;
@@ -50,50 +69,72 @@ public sealed class ProfilerGraphConfig
 
     /// <summary>
     /// Returns the number of most-recent samples to display for the
-    /// current <see cref="Zoom"/> level.
+    /// current <see cref="Zoom"/> level. <see cref="ProfilerZoomLevel.All"/>
+    /// returns <see cref="AllSentinel"/> — callers should clamp to the
+    /// actual series size.
     /// </summary>
     public int GetSampleCount()
     {
         return Zoom switch
         {
-            ProfilerZoomLevel.X1 => 600,
-            ProfilerZoomLevel.X5 => 3000,
-            ProfilerZoomLevel.X15 => 9000,
-            ProfilerZoomLevel.X30 => ProfilerSeries.SampleCapacity,
-            _ => 600,
+            ProfilerZoomLevel.Sec1   => 60,
+            ProfilerZoomLevel.Sec5   => 300,
+            ProfilerZoomLevel.Sec15  => 900,
+            ProfilerZoomLevel.Sec30  => 1800,
+            ProfilerZoomLevel.Min1   => 3600,
+            ProfilerZoomLevel.Min5   => 18000,
+            ProfilerZoomLevel.Min15  => 54000,
+            ProfilerZoomLevel.Hour1  => 216000,
+            ProfilerZoomLevel.All    => AllSentinel,
+            _ => 1800,
         };
     }
 
-    /// <summary>Cycles to the next zoom level (X1 → X5 → X15 → X30 → X1).</summary>
+    /// <summary>Cycles to the next zoom level (Sec1 -&gt; Sec5 -&gt; ... -&gt; All -&gt; Sec1).</summary>
     public void ZoomIn()
     {
         Zoom = Zoom switch
         {
-            ProfilerZoomLevel.X1 => ProfilerZoomLevel.X5,
-            ProfilerZoomLevel.X5 => ProfilerZoomLevel.X15,
-            ProfilerZoomLevel.X15 => ProfilerZoomLevel.X30,
-            _ => ProfilerZoomLevel.X1,
+            ProfilerZoomLevel.Sec1   => ProfilerZoomLevel.Sec5,
+            ProfilerZoomLevel.Sec5   => ProfilerZoomLevel.Sec15,
+            ProfilerZoomLevel.Sec15  => ProfilerZoomLevel.Sec30,
+            ProfilerZoomLevel.Sec30  => ProfilerZoomLevel.Min1,
+            ProfilerZoomLevel.Min1   => ProfilerZoomLevel.Min5,
+            ProfilerZoomLevel.Min5   => ProfilerZoomLevel.Min15,
+            ProfilerZoomLevel.Min15  => ProfilerZoomLevel.Hour1,
+            ProfilerZoomLevel.Hour1  => ProfilerZoomLevel.All,
+            _                         => ProfilerZoomLevel.Sec1,
         };
     }
 
-    /// <summary>Cycles to the previous zoom level (X30 → X15 → X5 → X1 → X30).</summary>
+    /// <summary>Cycles to the previous zoom level (All -&gt; Hour1 -&gt; ... -&gt; Sec1 -&gt; All).</summary>
     public void ZoomOut()
     {
         Zoom = Zoom switch
         {
-            ProfilerZoomLevel.X30 => ProfilerZoomLevel.X15,
-            ProfilerZoomLevel.X15 => ProfilerZoomLevel.X5,
-            ProfilerZoomLevel.X5 => ProfilerZoomLevel.X1,
-            _ => ProfilerZoomLevel.X30,
+            ProfilerZoomLevel.All    => ProfilerZoomLevel.Hour1,
+            ProfilerZoomLevel.Hour1  => ProfilerZoomLevel.Min15,
+            ProfilerZoomLevel.Min15  => ProfilerZoomLevel.Min5,
+            ProfilerZoomLevel.Min5   => ProfilerZoomLevel.Min1,
+            ProfilerZoomLevel.Min1   => ProfilerZoomLevel.Sec30,
+            ProfilerZoomLevel.Sec30  => ProfilerZoomLevel.Sec15,
+            ProfilerZoomLevel.Sec15  => ProfilerZoomLevel.Sec5,
+            ProfilerZoomLevel.Sec5   => ProfilerZoomLevel.Sec1,
+            _                         => ProfilerZoomLevel.All,
         };
     }
 
     public string ZoomLabel => Zoom switch
     {
-        ProfilerZoomLevel.X1 => "1x",
-        ProfilerZoomLevel.X5 => "5x",
-        ProfilerZoomLevel.X15 => "15x",
-        ProfilerZoomLevel.X30 => "30x",
-        _ => "?",
+        ProfilerZoomLevel.Sec1   => "1s",
+        ProfilerZoomLevel.Sec5   => "5s",
+        ProfilerZoomLevel.Sec15  => "15s",
+        ProfilerZoomLevel.Sec30  => "30s",
+        ProfilerZoomLevel.Min1   => "1m",
+        ProfilerZoomLevel.Min5   => "5m",
+        ProfilerZoomLevel.Min15  => "15m",
+        ProfilerZoomLevel.Hour1  => "1h",
+        ProfilerZoomLevel.All    => "all",
+        _                         => "?",
     };
 }

@@ -7,12 +7,25 @@ using SkiaSharp;
 /// <summary>
 /// Renders a single profiler sub-graph inside the
 /// <see cref="ProfilerGraphWindow"/>: panel background, title,
-/// y-axis max label, 3 grid lines, one polyline per visible metric,
-/// and a value-legend along the right edge.
+/// y-axis max label, 3 grid lines, one polyline (or decimated
+/// min/max column) per visible metric, and a value-legend along
+/// the right edge.
+///
+/// fase-4.12-fix3-v2 changes:
+///   * <see cref="Draw"/> takes an absolute sample window
+///     <c>(windowStart, windowCount)</c> into
+///     <see cref="ProfilerSeries"/> instead of a last-N count.
+///     This lets <see cref="ProfilerGraphWindow"/> pan through
+///     history via the scrollbar.
+///   * When the visible window is wider than ~2x the plot pixel
+///     width, the renderer switches to min/max decimation per
+///     pixel column (vertical line from min to max). Polyline is
+///     used otherwise. Both paths read series data via
+///     <see cref="ProfilerSeries.GetSpan"/> / a small scratch
+///     buffer — never allocates per-draw.
 ///
 /// This class is not hot-path for the simulation — it runs only
-/// while the profiler graph window is open. Scratch buffers
-/// (<c>_scratch</c> and <c>_path</c>) and the three owned paints
+/// while the profiler graph window is open. The three owned paints
 /// (<c>_fillPaint</c>, <c>_strokePaint</c>, <c>_textPaint</c>) are
 /// reused across metrics and across frames to keep draw-time
 /// allocations at zero.
@@ -44,7 +57,15 @@ public sealed class ProfilerGraphPanel : IDisposable
         }
     }
 
-    private readonly float[] _scratch = new float[ProfilerSeries.SampleCapacity];
+    /// <summary>
+    /// Polyline path is only used when the window fits comfortably
+    /// into a small scratch buffer. Windows larger than this fall
+    /// through to the decimation path which reads the series span
+    /// directly without copying.
+    /// </summary>
+    private const int PolylineScratchCap = 8192;
+
+    private readonly float[] _scratch = new float[PolylineScratchCap];
     private readonly SKPath _path = new SKPath();
 
     // Paint isolation: each panel owns its own paint instances so
@@ -76,11 +97,12 @@ public sealed class ProfilerGraphPanel : IDisposable
     }
 
     /// <summary>
-    /// Draws one sub-graph. Paints are owned by this instance.
-    /// Metrics are passed as an (array, count) pair to avoid per-frame
-    /// IReadOnlyList boxing. When <paramref name="yAxisLocked"/> is
-    /// <c>true</c>, the EMA-smoothed Y ceiling is frozen at its
-    /// current value (the Pin/Lock button state in the window).
+    /// Draws one sub-graph for the absolute window
+    /// <c>[windowStart, windowStart + windowCount)</c> of
+    /// <paramref name="series"/>. Paints are owned by this instance.
+    /// When <paramref name="yAxisLocked"/> is <c>true</c>, the
+    /// EMA-smoothed Y ceiling is frozen at its current value (the
+    /// Pin/Lock button state in the window).
     /// </summary>
     public void Draw(
         SKCanvas canvas,
@@ -88,7 +110,8 @@ public sealed class ProfilerGraphPanel : IDisposable
         string title,
         string unitSuffix,
         ProfilerSeries series,
-        int wantSamples,
+        int windowStart,
+        int windowCount,
         MetricLine[] metrics,
         int metricCount,
         bool yAxisLocked)
@@ -121,15 +144,29 @@ public sealed class ProfilerGraphPanel : IDisposable
         _textPaint.Color = UiTheme.TextStrong;
         canvas.DrawText(title, bounds.Left + pad, bounds.Top + 12f, _textPaint);
 
-        // Find max across visible metrics (last N frames each).
-        int want = wantSamples < _scratch.Length ? wantSamples : _scratch.Length;
+        // Clamp the requested window to what the series actually has.
+        int totalAvail = series.Count;
+        if (windowStart < 0) windowStart = 0;
+        if (windowStart >= totalAvail)
+        {
+            windowStart = totalAvail;
+            windowCount = 0;
+        }
+        else if (windowStart + windowCount > totalAvail)
+        {
+            windowCount = totalAvail - windowStart;
+        }
+
+        // Find max across visible metrics over the window via GetSpan.
         float max = 0.01f;
         for (int mi = 0; mi < metricCount; mi++)
         {
-            int got = series.CopyLast(metrics[mi].MetricIndex, new Span<float>(_scratch, 0, want));
-            for (int i = 0; i < got; i++)
+            ReadOnlySpan<float> src = series.GetSpan(metrics[mi].MetricIndex);
+            int len = windowCount;
+            if (windowStart + len > src.Length) len = src.Length - windowStart;
+            for (int i = 0; i < len; i++)
             {
-                float v = _scratch[i];
+                float v = src[windowStart + i];
                 if (v > max) max = v;
             }
         }
@@ -174,44 +211,33 @@ public sealed class ProfilerGraphPanel : IDisposable
         string maxLabel = scale.ToString("F2", CultureInfo.InvariantCulture) + " " + unitSuffix;
         canvas.DrawText(maxLabel, plotRight - 64f, bounds.Top + 12f, _textPaint);
 
-        // Subsample stride if sample-count exceeds pixel width.
         int pixels = (int)plotW;
         if (pixels < 1) pixels = 1;
 
-        // Draw each visible metric as a polyline.
+        // Decimation threshold: when the window spans more than
+        // ~2x the plot width, min/max bucketing preserves spikes
+        // better than a stride-skipping polyline.
+        bool decimate = windowCount > pixels * 2;
+
         _strokePaint.StrokeWidth = 1.2f;
         for (int mi = 0; mi < metricCount; mi++)
         {
             MetricLine m = metrics[mi];
-            int got = series.CopyLast(m.MetricIndex, new Span<float>(_scratch, 0, want));
-            if (got <= 1) continue;
+            ReadOnlySpan<float> src = series.GetSpan(m.MetricIndex);
+            int len = windowCount;
+            if (windowStart + len > src.Length) len = src.Length - windowStart;
+            if (len <= 1) continue;
 
-            int stride = got / pixels;
-            if (stride < 1) stride = 1;
-
-            _path.Reset();
-            float denom = got - 1;
-            if (denom < 1f) denom = 1f;
-            bool first = true;
-            for (int i = 0; i < got; i += stride)
-            {
-                float v = _scratch[i];
-                float px = plotX + plotW * i / denom;
-                float py = plotBottom - (v / scale) * plotH;
-                if (first) { _path.MoveTo(px, py); first = false; }
-                else _path.LineTo(px, py);
-            }
-            // Ensure the last point is drawn even if stride skipped it.
-            int lastIdx = got - 1;
-            if ((lastIdx % stride) != 0)
-            {
-                float v = _scratch[lastIdx];
-                float px = plotX + plotW;
-                float py = plotBottom - (v / scale) * plotH;
-                _path.LineTo(px, py);
-            }
             _strokePaint.Color = m.Color;
-            canvas.DrawPath(_path, _strokePaint);
+
+            if (decimate)
+            {
+                DrawDecimated(canvas, src, windowStart, len, plotX, plotW, plotBottom, plotH, scale, pixels);
+            }
+            else
+            {
+                DrawPolyline(canvas, src, windowStart, len, plotX, plotW, plotBottom, plotH, scale);
+            }
         }
 
         // Legend along the right side (inside plot area).
@@ -221,8 +247,13 @@ public sealed class ProfilerGraphPanel : IDisposable
         for (int mi = 0; mi < metricCount; mi++)
         {
             MetricLine m = metrics[mi];
-            int got = series.CopyLast(m.MetricIndex, new Span<float>(_scratch, 0, 1));
-            float lastVal = got == 0 ? 0f : _scratch[0];
+            ReadOnlySpan<float> src = series.GetSpan(m.MetricIndex);
+            float lastVal = 0f;
+            int lastIdx = windowStart + windowCount - 1;
+            if (lastIdx >= 0 && lastIdx < src.Length)
+            {
+                lastVal = src[lastIdx];
+            }
             _fillPaint.Color = m.Color;
             canvas.DrawRect(new SKRect(legendX, legendY - 7f, legendX + 7f, legendY - 1f), _fillPaint);
             _textPaint.Color = UiTheme.TextBody;
@@ -230,6 +261,85 @@ public sealed class ProfilerGraphPanel : IDisposable
             canvas.DrawText(lbl, legendX + 11f, legendY, _textPaint);
             legendY += 11f;
             if (legendY + 4f > plotBottom) break;
+        }
+    }
+
+    /// <summary>
+    /// Polyline path for small windows. Reads directly from the
+    /// series span — no allocation, no copy.
+    /// </summary>
+    private void DrawPolyline(
+        SKCanvas canvas,
+        ReadOnlySpan<float> src,
+        int windowStart,
+        int len,
+        float plotX,
+        float plotW,
+        float plotBottom,
+        float plotH,
+        float scale)
+    {
+        _path.Reset();
+        float denom = len - 1;
+        if (denom < 1f) denom = 1f;
+        for (int i = 0; i < len; i++)
+        {
+            float v = src[windowStart + i];
+            float px = plotX + plotW * i / denom;
+            float py = plotBottom - (v / scale) * plotH;
+            if (i == 0) _path.MoveTo(px, py);
+            else _path.LineTo(px, py);
+        }
+        canvas.DrawPath(_path, _strokePaint);
+    }
+
+    /// <summary>
+    /// Min/max column decimation for windows wider than ~2x the
+    /// plot pixel count. Each pixel column becomes a vertical line
+    /// from the min to max value of the samples that fall into
+    /// that column. Spikes are preserved because the max bucket
+    /// captures them.
+    /// </summary>
+    private void DrawDecimated(
+        SKCanvas canvas,
+        ReadOnlySpan<float> src,
+        int windowStart,
+        int len,
+        float plotX,
+        float plotW,
+        float plotBottom,
+        float plotH,
+        float scale,
+        int pixels)
+    {
+        // Samples per pixel column (at least 1).
+        int step = len / pixels;
+        if (step < 1) step = 1;
+
+        for (int col = 0; col < pixels; col++)
+        {
+            int from = col * step;
+            int to = from + step;
+            if (to > len) to = len;
+            if (from >= to) break;
+
+            float mn = float.PositiveInfinity;
+            float mx = float.NegativeInfinity;
+            int baseIdx = windowStart + from;
+            int count = to - from;
+            for (int j = 0; j < count; j++)
+            {
+                float v = src[baseIdx + j];
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+            }
+
+            float px = plotX + plotW * col / (float)pixels;
+            float pyMin = plotBottom - (mn / scale) * plotH;
+            float pyMax = plotBottom - (mx / scale) * plotH;
+            // Draw vertical line from min to max; DrawLine also
+            // handles the degenerate equal case (single-pixel dot).
+            canvas.DrawLine(px, pyMin, px, pyMax, _strokePaint);
         }
     }
 
