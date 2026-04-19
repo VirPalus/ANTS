@@ -411,3 +411,32 @@ Impact: none today.
 Effort: small (change ctor arg type, add lambda at call site).
 Scope: defer until an actual reassignment need arises.
 Discovered: 2026-04-19 during fase-4.5 scope-report review.
+
+---
+
+## CellSize duplicated across multiple renderers
+
+`const int CellSize = 16;` is currently declared in:
+
+- `Engine.Engine.cs` (L13) — used for camera/world sizing, ant rendering,
+  pheromone overlay, cull math.
+- `Engine.PlacementController.cs` (L16) — hard-coded duplicate (fase-4.4).
+- `Engine.SelectionController.cs` — inline const (fase-4.3).
+- `Engine.WorldRenderer.cs` (L22) — hard-coded duplicate (fase-4.6).
+
+All four currently hold the same value (16). Any future change to the
+cell size would require editing all four sites and risk silent
+divergence if one is missed.
+
+Impact: none today (identical values).
+Latent risk: divergence on future resize.
+Effort: small — introduce `Engine/RenderConstants.cs` with
+`public const int CellSize = 16;` (and any other render-tuning
+constants). All call sites import it. Or, per ctor-arg pattern if
+we want true per-instance configurability.
+
+CellSize duplicated across PlacementController, SelectionController,
+WorldRenderer. Consolidate in RenderConstants.cs in fase-4.13 cleanup.
+
+Scope: deferred to fase-4.13 cleanup.
+Discovered: 2026-04-19 during fase-4.6 WorldRenderer extract.

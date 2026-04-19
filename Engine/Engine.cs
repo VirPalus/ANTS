@@ -11,7 +11,6 @@ using SkiaSharp.Views.Desktop;
 public partial class Engine : Form
 {
     private const int CellSize = 16;
-    private const int BorderThickness = 16;
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
@@ -54,18 +53,12 @@ public partial class Engine : Form
     private const double StageEmaAlpha = 0.05;
     private FastSKGLControl _skControl = null!;
     private PaintCache _paints = null!;
-    private SKPicture _gridPicture = null!;
-    private SKPicture? _gridLinesPicture;
     private SKPicture _hudPicture = null!;
     private SKPicture _statsPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private bool _buttonsDirty = true;
-    private SKPicture? _foodPicture;
-    private int _foodPictureCachedVersion = -1;
     private SKPicture? _topBarPicture;
     private bool _topBarDirty = true;
-    private SKPicture? _nestsPicture;
-    private int _nestsPictureCachedCount = -1;
     private SKBitmap? _pheromoneHomeBitmap;
     private SKBitmap? _pheromoneFoodBitmap;
     private byte[]? _pheromoneHomeBuffer;
@@ -77,8 +70,7 @@ public partial class Engine : Form
     // === END FASE 6.6 STAP B ======================================================
     private UiTopBar _topBar = null!;
     private UiStartOverlay _startOverlay = null!;
-    private SKPath _nestPath = null!;
-    private SKPath _foodPath = null!;
+    private WorldRenderer _worldRenderer = null!;
     private SKRect[] _antBodySprites = Array.Empty<SKRect>();
     private SKRotationScaleMatrix[] _antBodyTransforms = Array.Empty<SKRotationScaleMatrix>();
     private SKPoint[] _antDotPoints = Array.Empty<SKPoint>();
@@ -104,9 +96,6 @@ public partial class Engine : Form
 
         _textMetrics = _paints.SharedText.FontMetrics;
         _textHeight = -_textMetrics.Ascent + _textMetrics.Descent;
-
-        _nestPath = Own(new SKPath());
-        _foodPath = Own(new SKPath());
 
         _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
 
@@ -159,8 +148,8 @@ public partial class Engine : Form
         _hudStopwatch.Start();
         RecordHudPicture();
         RecordStatsPicture();
-        RecordFoodPicture();
-        RecordNestsPicture();
+        _worldRenderer = Own(new WorldRenderer(() => _world, _camera, _foodSkColor));
+        _worldRenderer.Rebuild();
         RecordTopBarPicture();
         UpdateFrameCapTiming();
         Application.Idle += OnApplicationIdle;
@@ -249,7 +238,7 @@ public partial class Engine : Form
         }
         _placement.SetNextColorIndex(seedCount);
 
-        RecordGridPicture();
+        _worldRenderer?.RebuildGrid();
     }
 
     private static MapDefinition LoadFirstMapOrDemo()
@@ -290,117 +279,12 @@ public partial class Engine : Form
         }
         _placement.SetNextColorIndex(map.ColonySeeds.Count);
 
-        RecordGridPicture();
-        RecordFoodPicture();
-        RecordNestsPicture();
+        _worldRenderer.Rebuild();
         _camera.FitWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, FitMarginPx);
         _startOverlay.Visible = false;
         _topBar.MapName = entry.DisplayName;
         _topBarDirty = true;
         RecalculateLayout();
-    }
-
-    private void RecordGridPicture()
-    {
-        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
-        int gridWidth = _world.Width * CellSize;
-        int gridHeight = _world.Height * CellSize;
-        const int Margin = 16;
-        SKRect cullRect = new SKRect(-Margin, -Margin, gridWidth + Margin, gridHeight + Margin);
-
-        SKPictureRecorder recorder = new SKPictureRecorder();
-        SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
-        using (SKPaint basePaint = new SKPaint())
-        {
-            basePaint.Style = SKPaintStyle.Fill;
-            basePaint.IsAntialias = true;
-            basePaint.Color = UiTheme.WallColor;
-
-            const float cornerRadius = 16f;
-            SKRect baseRect = new SKRect(
-                -BorderThickness, -BorderThickness,
-                gridWidth + BorderThickness, gridHeight + BorderThickness);
-            using SKRoundRect baseRr = new SKRoundRect(baseRect, cornerRadius, cornerRadius);
-            recordingCanvas.DrawRoundRect(baseRr, basePaint);
-        }
-
-        using (SKPaint worldBgPaint = new SKPaint())
-        {
-            worldBgPaint.Style = SKPaintStyle.Fill;
-            worldBgPaint.IsAntialias = false;
-            worldBgPaint.Color = UiTheme.BgWorld;
-            recordingCanvas.DrawRect(0, 0, gridWidth, gridHeight, worldBgPaint);
-        }
-
-        {
-            SKPictureRecorder gridLinesRecorder = new SKPictureRecorder();
-            SKCanvas glCanvas = gridLinesRecorder.BeginRecording(cullRect);
-
-            using (SKPaint linePaint = new SKPaint())
-            {
-                linePaint.Style = SKPaintStyle.Stroke;
-                linePaint.IsAntialias = false;
-                linePaint.Color = UiTheme.GridLine;
-                linePaint.StrokeWidth = 0;
-
-                using (SKPath linePath = new SKPath())
-                {
-                    int w = _world.Width;
-                    int h = _world.Height;
-                    for (int x = 1; x < w; x++)
-                    {
-                        float px = x * CellSize;
-                        linePath.MoveTo(px, 0);
-                        linePath.LineTo(px, gridHeight);
-                    }
-                    for (int y = 1; y < h; y++)
-                    {
-                        float py = y * CellSize;
-                        linePath.MoveTo(0, py);
-                        linePath.LineTo(gridWidth, py);
-                    }
-                    if (linePath.PointCount > 0)
-                    {
-                        glCanvas.DrawPath(linePath, linePaint);
-                    }
-                }
-            }
-
-            Replace(ref _gridLinesPicture!, gridLinesRecorder.EndRecording());
-            gridLinesRecorder.Dispose();
-        }
-
-        using (SKPaint wallPaint = new SKPaint())
-        {
-            wallPaint.Style = SKPaintStyle.Fill;
-            wallPaint.IsAntialias = false;
-            wallPaint.Color = UiTheme.WallColor;
-
-            using (SKPath wallPath = new SKPath())
-            {
-                int w = _world.Width;
-                int h = _world.Height;
-                for (int x = 0; x < w; x++)
-                {
-                    for (int y = 0; y < h; y++)
-                    {
-                        if (_world.GetCell(x, y) == CellType.Wall)
-                        {
-                            wallPath.AddRect(new SKRect(
-                                x * CellSize, y * CellSize,
-                                (x + 1) * CellSize, (y + 1) * CellSize));
-                        }
-                    }
-                }
-                if (wallPath.PointCount > 0)
-                {
-                    recordingCanvas.DrawPath(wallPath, wallPaint);
-                }
-            }
-        }
-
-        Replace(ref _gridPicture!, recorder.EndRecording());
-        recorder.Dispose();
     }
 
     private void Tick()
@@ -607,49 +491,6 @@ public partial class Engine : Form
         recorder.Dispose();
     }
 
-    private void RecordFoodPicture()
-    {
-        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
-        int foodCount = _world.FoodCount;
-        _foodPictureCachedVersion = _world.FoodVersion;
-
-        if (foodCount == 0)
-        {
-            if (_foodPicture != null) { Replace(ref _foodPicture!, null!); }
-            return;
-        }
-
-        int gridWidth = _world.Width * CellSize;
-        int gridHeight = _world.Height * CellSize;
-        SKRect cullRect = new SKRect(0, 0, gridWidth, gridHeight);
-        SKPictureRecorder recorder = new SKPictureRecorder();
-        SKCanvas rc = recorder.BeginRecording(cullRect);
-
-        using (SKPaint foodPaint = new SKPaint())
-        {
-            foodPaint.Style = SKPaintStyle.Fill;
-            foodPaint.IsAntialias = false;
-
-            Point[] foodCells = _world.FoodCells;
-            for (int i = 0; i < foodCount; i++)
-            {
-                int cellX = foodCells[i].X;
-                int cellY = foodCells[i].Y;
-                float amount = _world.GetFoodAmount(cellX, cellY);
-                int step = (int)(amount * 10f);
-                if (step > 4) step = 4;
-                byte alpha = (byte)(step * 64);
-                if (alpha < 64) alpha = 64;
-                if (step == 4) alpha = 255;
-                foodPaint.Color = _foodSkColor.WithAlpha(alpha);
-                rc.DrawRect(cellX * CellSize, cellY * CellSize, CellSize, CellSize, foodPaint);
-            }
-        }
-
-        Replace(ref _foodPicture!, recorder.EndRecording());
-        recorder.Dispose();
-    }
-
     private void RecordTopBarPicture()
     {
         // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
@@ -667,56 +508,6 @@ public partial class Engine : Form
         recorder.Dispose();
         _topBarDirty = false;
     }
-    private void RecordNestsPicture()
-    {
-        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
-        IReadOnlyList<Colony> colonies = _world.Colonies;
-        int colonyCount = colonies.Count;
-        _nestsPictureCachedCount = colonyCount;
-
-        if (colonyCount == 0)
-        {
-            if (_nestsPicture != null) { Replace(ref _nestsPicture!, null!); }
-            return;
-        }
-
-        int gridWidth = _world.Width * CellSize;
-        int gridHeight = _world.Height * CellSize;
-        SKRect cullRect = new SKRect(0, 0, gridWidth, gridHeight);
-        SKPictureRecorder recorder = new SKPictureRecorder();
-        SKCanvas rc = recorder.BeginRecording(cullRect);
-
-        using (SKPaint nestFill = new SKPaint())
-        {
-            nestFill.Style = SKPaintStyle.Fill;
-            nestFill.IsAntialias = false;
-
-            for (int i = 0; i < colonyCount; i++)
-            {
-                Colony colony = colonies[i];
-                nestFill.Color = colony.CachedSkColor;
-
-                _nestPath.Reset();
-                for (int dy = -World.NestRadius; dy <= World.NestRadius; dy++)
-                {
-                    for (int dx = -World.NestRadius; dx <= World.NestRadius; dx++)
-                    {
-                        if (Math.Abs(dx) + Math.Abs(dy) > World.NestRadius) continue;
-                        int cellX = colony.NestX + dx;
-                        int cellY = colony.NestY + dy;
-                        _nestPath.AddRect(new SKRect(
-                            cellX * CellSize, cellY * CellSize,
-                            (cellX + 1) * CellSize, (cellY + 1) * CellSize));
-                    }
-                }
-                rc.DrawPath(_nestPath, nestFill);
-            }
-        }
-
-        Replace(ref _nestsPicture!, recorder.EndRecording());
-        recorder.Dispose();
-    }
-
     private void CacheButtonTextPosition(UiButton button)
     {
         float textWidth = _paints.SharedText.MeasureText(button.Label);
@@ -1263,36 +1054,17 @@ public partial class Engine : Form
 
         canvas.Save();
         _camera.Apply(canvas);
-        canvas.DrawPicture(_gridPicture);
+        _worldRenderer.DrawBase(canvas);
 
         if (_showPheromones)
         {
             DrawPheromoneOverlay(canvas);
         }
 
-        if (_world.FoodVersion != _foodPictureCachedVersion)
-        {
-            RecordFoodPicture();
-        }
-        if (_foodPicture != null)
-        {
-            canvas.DrawPicture(_foodPicture);
-        }
+        _worldRenderer.DrawFoodNestsAndGridLines(canvas);
+
         IReadOnlyList<Colony> colonies = _world.Colonies;
         int colonyCount = colonies.Count;
-        if (colonyCount != _nestsPictureCachedCount)
-        {
-            RecordNestsPicture();
-        }
-        if (_nestsPicture != null)
-        {
-            canvas.DrawPicture(_nestsPicture);
-        }
-
-        if (_gridLinesPicture != null && _camera.Zoom >= 0.5f)
-        {
-            canvas.DrawPicture(_gridLinesPicture);
-        }
         if (colonyCount > 0)
         {
             bool hasAnyAnts = false;
