@@ -360,3 +360,25 @@ renderer-local cache; replace `using new SKPaint()` with paint reuse.
 Scope: out-of-scope for fase-4.3 (pure move). Fold into fase-4.10
 StatsPanelRenderer context or a dedicated info-panel renderer pass.
 Discovered: 2026-04-19 during fase-4.3 scope-report review.
+
+### Nest geometry duplicated between ghost and permanent SKPicture
+
+Current behavior: the Manhattan-diamond nest shape is rendered in two
+places with identical geometry but from different code paths:
+
+- `PlacementController.DrawNest` — ghost preview during colony
+  placement, uses the controller's own `_ghostNestPath` scratch.
+- `Engine.RecordNestsPicture` — permanent per-colony nest rendering
+  into `_nestsPicture` (SKPicture cache), uses Engine's `_nestPath`.
+
+Both loops over `[-NestRadius, +NestRadius]` filtering by
+`|dx| + |dy| <= NestRadius` and emit identical cell rects. Any future
+change to nest shape (e.g. hexagonal, larger radius, chamfered) must
+be kept in sync manually.
+
+Impact: none today (identical output guaranteed by identical code).
+Latent risk: divergence on future shape change.
+Effort: small — extract a static helper like
+`NestGeometry.BuildPath(SKPath path, int cellX, int cellY, int cellSize)`.
+Scope: deferred to fase-4.13 cleanup or later.
+Discovered: 2026-04-19 during fase-4.4 scope-report review.

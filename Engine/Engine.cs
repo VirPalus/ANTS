@@ -38,27 +38,13 @@ public partial class Engine : Form
     private static readonly SKColor OffenseBarColor = new SKColor(234, 179, 8);
     private static readonly SKColor FoodPheromoneColor = new SKColor(34, 197, 94);
 
-    private static readonly Color[] ColonyColors = new Color[]
-    {
-        Color.FromArgb(239, 68, 68),
-        Color.FromArgb(59, 130, 246),
-        Color.FromArgb(234, 179, 8),
-        Color.FromArgb(249, 115, 22),
-        Color.FromArgb(168, 85, 247),
-        Color.FromArgb(236, 72, 153),
-    };
-
     private static readonly Color FoodColor = Color.FromArgb(34, 197, 94);
     private World _world = null!;
     private Camera _camera = new Camera();
     private List<UiButton> _buttons = new List<UiButton>();
-    private PlacingMode _placingMode = PlacingMode.None;
-    private int _nextColorIndex;
-    private int _mouseX;
-    private int _mouseY;
-    private bool _isDrawingFood;
     private bool _showPheromones;
     private SelectionController _selection = null!;
+    private PlacementController _placement = null!;
     private bool _isRightDragging;
     private int _rightDragLastX;
     private int _rightDragLastY;
@@ -131,6 +117,8 @@ public partial class Engine : Form
         _foodPath = Own(new SKPath());
 
         _foodSkColor = new SKColor(FoodColor.R, FoodColor.G, FoodColor.B);
+
+        _placement = Own(new PlacementController(_camera, _paints, _foodSkColor, c => Cursor = c));
 
         _skControl = new FastSKGLControl();
         _skControl.Dock = DockStyle.Fill;
@@ -255,7 +243,7 @@ public partial class Engine : Form
             ColonySeed seed = map.ColonySeeds[i];
             _world.AddColony(seed.X, seed.Y, seed.Color);
         }
-        _nextColorIndex = seedCount;
+        _placement.SetNextColorIndex(seedCount);
 
         RecordGridPicture();
     }
@@ -288,6 +276,7 @@ public partial class Engine : Form
         _world = new World(map.Width, map.Height);
         _sim.SetWorld(_world);
         _selection.Clear();
+        _placement.Cancel();
         _world.ApplyMapLayout(map);
 
         for (int i = 0; i < map.ColonySeeds.Count; i++)
@@ -295,7 +284,7 @@ public partial class Engine : Form
             ColonySeed seed = map.ColonySeeds[i];
             _world.AddColony(seed.X, seed.Y, seed.Color);
         }
-        _nextColorIndex = map.ColonySeeds.Count;
+        _placement.SetNextColorIndex(map.ColonySeeds.Count);
 
         RecordGridPicture();
         RecordFoodPicture();
@@ -472,15 +461,15 @@ public partial class Engine : Form
 
         UiButton addColonyButton = new UiButton(
             new Rectangle(addColonyX, buttonY, ButtonWidth, ButtonHeight),
-            "Add Colony", StartPlacingColony);
-        addColonyButton.IsActive = () => _placingMode == PlacingMode.Colony;
+            "Add Colony", _placement.StartPlacingColony);
+        addColonyButton.IsActive = () => _placement.IsPlacingColony;
         CacheButtonTextPosition(addColonyButton);
         _buttons.Add(addColonyButton);
 
         UiButton addFoodButton = new UiButton(
             new Rectangle(addFoodX, buttonY, ButtonWidth, ButtonHeight),
-            "Add Food", StartPlacingFood);
-        addFoodButton.IsActive = () => _placingMode == PlacingMode.Food;
+            "Add Food", _placement.StartPlacingFood);
+        addFoodButton.IsActive = () => _placement.IsPlacingFood;
         CacheButtonTextPosition(addFoodButton);
         _buttons.Add(addFoodButton);
 
@@ -733,30 +722,9 @@ public partial class Engine : Form
         button.TextBaselineY = labelTopY - _textMetrics.Ascent;
     }
 
-    private void StartPlacingColony()
-    {
-        _placingMode = PlacingMode.Colony;
-        _isDrawingFood = false;
-        Cursor = Cursors.Cross;
-    }
-
-    private void StartPlacingFood()
-    {
-        _placingMode = PlacingMode.Food;
-        _isDrawingFood = false;
-        Cursor = Cursors.Cross;
-    }
-
     private void TogglePheromones()
     {
         _showPheromones = !_showPheromones;
-    }
-
-    private void CancelPlacing()
-    {
-        _placingMode = PlacingMode.None;
-        _isDrawingFood = false;
-        Cursor = Cursors.Default;
     }
 
     private void OnSkMouseDown(object? sender, MouseEventArgs e)
@@ -797,26 +765,8 @@ public partial class Engine : Form
             }
         }
 
-        if (_placingMode == PlacingMode.Colony)
+        if (_placement.HandleMouseDown(e.X, e.Y, _world))
         {
-            ScreenToCell(e.X, e.Y, out int cellX, out int cellY);
-            if (!NestFitsInWorld(cellX, cellY))
-            {
-                return;
-            }
-
-            Color nextColor = ColonyColors[_nextColorIndex % ColonyColors.Length];
-            _nextColorIndex++;
-
-            _world.AddColony(cellX, cellY, nextColor);
-            CancelPlacing();
-            return;
-        }
-
-        if (_placingMode == PlacingMode.Food)
-        {
-            _isDrawingFood = true;
-            PaintFoodAtMouse(e.X, e.Y);
             return;
         }
 
@@ -825,8 +775,7 @@ public partial class Engine : Form
 
     private void OnSkMouseMove(object? sender, MouseEventArgs e)
     {
-        _mouseX = e.X;
-        _mouseY = e.Y;
+        _placement.UpdateMouseCoords(e.X, e.Y);
 
         bool wasPauseHovered = _topBar.PauseButton.IsHovered;
         _topBar.UpdateHover(e.X, e.Y);
@@ -854,10 +803,7 @@ public partial class Engine : Form
             return;
         }
 
-        if (_isDrawingFood)
-        {
-            PaintFoodAtMouse(e.X, e.Y);
-        }
+        _placement.HandleMouseMoveDrag(_world);
     }
 
     private void OnSkMouseUp(object? sender, MouseEventArgs e)
@@ -870,7 +816,7 @@ public partial class Engine : Form
 
         if (e.Button == MouseButtons.Left)
         {
-            _isDrawingFood = false;
+            _placement.HandleMouseUp();
         }
     }
 
@@ -912,7 +858,7 @@ public partial class Engine : Form
         if (e.KeyCode == Keys.Escape)
         {
             _selection.Clear();
-            CancelPlacing();
+            _placement.Cancel();
             e.Handled = true;
             return;
         }
@@ -997,50 +943,6 @@ public partial class Engine : Form
 
         float step = KeyboardPanPxPerSecond * dt;
         _camera.PanScreen(dx * step, dy * step);
-    }
-
-    private void ScreenToCell(int screenX, int screenY, out int cellX, out int cellY)
-    {
-        _camera.ScreenToWorld(screenX, screenY, out float wx, out float wy);
-        cellX = (int)Math.Floor(wx / CellSize);
-        cellY = (int)Math.Floor(wy / CellSize);
-    }
-
-    private void PaintFoodAtMouse(int pixelX, int pixelY)
-    {
-        ScreenToCell(pixelX, pixelY, out int cellX, out int cellY);
-
-        if (cellX < 0 || cellX >= _world.Width)
-        {
-            return;
-        }
-        if (cellY < 0 || cellY >= _world.Height)
-        {
-            return;
-        }
-
-        _world.SetCell(cellX, cellY, CellType.Food);
-    }
-
-    private bool NestFitsInWorld(int centerCellX, int centerCellY)
-    {
-        if (centerCellX - World.NestRadius < 0)
-        {
-            return false;
-        }
-        if (centerCellX + World.NestRadius >= _world.Width)
-        {
-            return false;
-        }
-        if (centerCellY - World.NestRadius < 0)
-        {
-            return false;
-        }
-        if (centerCellY + World.NestRadius >= _world.Height)
-        {
-            return false;
-        }
-        return true;
     }
 
     private static SKColor ToSkColor(Color color)
@@ -1551,34 +1453,6 @@ public partial class Engine : Form
         _paints.SharedStroke.StrokeWidth = 1f;
     }
 
-    private void DrawNest(SKCanvas canvas, SKColor color, int centerCellX, int centerCellY)
-    {
-        _nestPath.Reset();
-
-        for (int dy = -World.NestRadius; dy <= World.NestRadius; dy++)
-        {
-            for (int dx = -World.NestRadius; dx <= World.NestRadius; dx++)
-            {
-                int manhattan = Math.Abs(dx) + Math.Abs(dy);
-                if (manhattan > World.NestRadius)
-                {
-                    continue;
-                }
-
-                int cellX = centerCellX + dx;
-                int cellY = centerCellY + dy;
-
-                float pixelX = cellX * CellSize;
-                float pixelY = cellY * CellSize;
-
-                _nestPath.AddRect(new SKRect(pixelX, pixelY, pixelX + CellSize, pixelY + CellSize));
-            }
-        }
-
-        _paints.SharedFill.Color = color;
-        canvas.DrawPath(_nestPath, _paints.SharedFill);
-    }
-
     private void OnSkPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
     {
         SKCanvas canvas = e.Surface.Canvas;
@@ -1647,25 +1521,7 @@ public partial class Engine : Form
             }
         }
 
-        if (_placingMode == PlacingMode.Colony)
-        {
-            ScreenToCell(_mouseX, _mouseY, out int hoverCellX, out int hoverCellY);
-            if (NestFitsInWorld(hoverCellX, hoverCellY))
-            {
-                Color ghostBase = ColonyColors[_nextColorIndex % ColonyColors.Length];
-                SKColor ghostColor = new SKColor(ghostBase.R, ghostBase.G, ghostBase.B, 140);
-                DrawNest(canvas, ghostColor, hoverCellX, hoverCellY);
-            }
-        }
-        if (_placingMode == PlacingMode.Food)
-        {
-            ScreenToCell(_mouseX, _mouseY, out int hoverCellX, out int hoverCellY);
-            if (hoverCellX >= 0 && hoverCellX < _world.Width && hoverCellY >= 0 && hoverCellY < _world.Height)
-            {
-                _paints.SharedFill.Color = _foodSkColor.WithAlpha(140);
-                canvas.DrawRect(hoverCellX * CellSize, hoverCellY * CellSize, CellSize, CellSize, _paints.SharedFill);
-            }
-        }
+        _placement.DrawGhost(canvas, _world);
 
         _selection.DrawOverlay(canvas, ClientSize.Width, ClientSize.Height);
         canvas.Restore();
