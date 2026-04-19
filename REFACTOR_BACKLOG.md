@@ -478,3 +478,92 @@ names cause confusion in file explorer. Consider renaming in fase-4.13:
 
 Scope: deferred to fase-4.13 cleanup.
 Discovered: 2026-04-19 during fase-4.7 AntsRenderer extract.
+
+---
+
+## FASE 5: Pheromone Overlay Performance Sprint (PLANNED POST-FASE 4)
+
+Goal: address 4 pheromone-overlay perf observations identified during
+fase-4.8 OverlayRenderer extract. Each sub-phase is characterization-
+gated (byte-identical digest must be preserved) and measured against
+the current overlay budget (~216μs end-to-end).
+
+These are EXPLICITLY PLANNED, not general-backlog deferred. Execution
+follows the fase-6.6 template: baseline profile → targeted change →
+harness byte-identity → before/after microbenchmark.
+
+### FASE 5.1: Obs-C — bounds-check elimination in tight pixel loop (HIGH VALUE)
+
+Observation: the `homeArrs[c][x, y]` and `foodArrs[c][x, y]` reads in
+the per-pixel inner loop trigger two JIT bounds-checks per access on
+every frame. For an 80×80 viewport × 2 channels × N colonies this is
+measurable.
+
+Approach: pin the multidim arrays or switch to `float[]` row-major with
+manual indexing (`arr[y * width + x]`) so the JIT can hoist bounds
+checks. Alternatively, switch to `Span<float>` with aggressive
+inlining.
+
+Risk: requires matching row-major layout with `PheromoneGrid` storage.
+If PheromoneGrid uses `[x, y]` (x outer, y inner contiguous), the
+iteration order in DrawPheromoneOverlay (x outer, y inner) is already
+cache-friendly; only bounds-check elimination is at play.
+
+Expected win: 30-60μs per overlay frame (rough estimate pending
+microbenchmark).
+
+### FASE 5.2: Obs-B — dirty-rect tracking for overlay buffer
+
+Observation: every overlay frame clears both `homeBuf` and `foodBuf`
+in full (`Array.Clear(..., bufSize)`) then walks the viewport rect.
+Most pixels never change between consecutive frames (pheromones decay
+slowly).
+
+Approach: track per-colony dirty rects in `PheromoneGrid` (the active-
+cells set already knows which cells changed); in OverlayRenderer, only
+re-render the union dirty rect instead of the full viewport. Also
+consider skipping the `Array.Clear` when the buffer is already zero
+in untouched regions.
+
+Risk: invalidation correctness. Pheromone decay means cells silently
+drop below cutoff without being marked dirty — need to track both
+"newly written" and "newly fell below cutoff" regions.
+
+Expected win: 80-150μs per overlay frame when few cells change
+(common case mid-game).
+
+### FASE 5.3: Obs-A — loop-order / SIMD opportunity
+
+Observation: the inner pixel loop does byte×byte multiply-divide-round
+(SkMulDiv255Round) four times per active pixel, scalar. This is a
+perfect SIMD candidate.
+
+Approach: use `System.Numerics.Vector<byte>` or `Vector128` to batch
+4 or 8 pixels at a time for the MulDiv255 + premultiply step. Requires
+restructuring the inner loop to collect a strip of pixels then vectorize.
+
+Risk: layout change must not break byte-identity digest. SIMD vs
+scalar rounding may differ by 1 LSB → must verify digest.
+
+Expected win: 40-80μs per overlay frame in high-pheromone scenarios.
+
+### FASE 5.4: Obs-D — DrawBitmap consolidation (single blit)
+
+Observation: OverlayRenderer issues two `DrawBitmap` calls per frame
+(home bitmap + food bitmap). Each is a separate GPU draw call with
+texture upload.
+
+Approach: composite home and food into a single RGBA bitmap before
+blit. Home uses colony color; food uses fixed green. Both channels
+can be packed into one buffer with RGB = max(homeRGB, foodRGB) and
+A = max(homeA, foodA), or use a 2-texture shader draw.
+
+Risk: blending order matters. Current code draws home first then food;
+the alpha compositing is additive in SrcOver mode. A single-bitmap
+version must match the exact per-pixel result.
+
+Expected win: 20-40μs per overlay frame (one fewer draw call, one
+fewer texture upload).
+
+Scope: planned for FASE 5 sprint after FASE 4 completion.
+Discovered: 2026-04-19 during fase-4.8 OverlayRenderer extract.
