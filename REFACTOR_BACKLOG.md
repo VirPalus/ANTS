@@ -293,3 +293,38 @@ Effort: profiling-driven; candidate approaches include SKPicture
 caching, dirty-flag partial updates, tile-based rendering,
 lower-resolution overlay texture.
 Discovered: 2026-04-18 during FASE 7.1 visual testing.
+
+### UI draw is now the dominant per-frame cost (~200 μs/frame)
+
+Current behavior: after FASE 6.6 (pheromone overlay optimalisatie) blijkt
+de UI-draw consistent ~189-209 μs per frame te kosten — onafhankelijk van
+of de overlay AAN of UIT staat. Dat is:
+
+- 65% van frame time bij overlay UIT (FRAME med ~300 μs)
+- 37% van frame time bij overlay AAN (FRAME med ~550 μs)
+
+Deze kost zat voorheen verstopt achter de 7 ms overlay. Na STAP B
+(overlay 7260 → 540 μs) is UI de nieuwe bottleneck.
+
+Verdachte componenten (gemeten via per-phase profiler V2, subsequently removed):
+
+- `DrawStatsPanel` per colony (4× bij test): panel background + border,
+  populatiegrafiek (60 datapoints), role breakdown (4 rows met bars),
+  queen intent + defense/offense bars. ~30 SKPaint calls per colony.
+- `_topBarPicture` / `_buttonsPicture` / `_hudPicture` draw zijn al
+  SKPicture-gecached. Blit-cost van SKPicture moet laag zijn maar kan
+  nog steeds meetbaar zijn bij hoge client-resolutie (2560×1369 in meting).
+
+Mogelijke aanpakken:
+
+- SKPicture cache voor `DrawStatsPanel` (alleen rebuild bij stat-changes,
+  niet elke frame).
+- Conditionele skip: panel alleen tekenen als zichtbaar/relevant.
+- Batch meerdere stats panels in één SKPicture.
+
+Impact: harness digest onveranderd (render-only).
+Effort: middelgroot — vereist stats-dirty-flag propagation.
+Scope: buiten FASE 6.6 (rendering pheromone overlay), candidate voor
+FASE 7 of 8.
+Discovered: 2026-04-19 tijdens FASE 6.6 Profiler V2 meting (Windows,
+4 colonies, 02_corridors, 10× speed, 200k+ frames geanalyseerd).

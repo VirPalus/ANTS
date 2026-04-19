@@ -211,8 +211,10 @@ Engine/
 3. ~~Replace `SteeringSystem.NormalizeAngle` while-loop with `Math.IEEERemainder`~~ **SKIPPED** — Pre-flight empirical analysis (2026-04-18) proved both proposed alternatives break bit-exact equivalence with baseline while-loop: `Math.IEEERemainder` 66.35% drift (float→double→float roundtrip + banker's rounding); `MathF`-only alternative 0.08% drift (still non-zero). Plan assumption "mathematically equivalent" held conceptually but not bit-exactly. Harness baselines depend on current bit-pattern output. No performance win in practice (analysis shows 0-1 iterations per call; large-input pathological case never occurs due to bounded input sources: `Atan2` results + small deltas). Keeping the while-loop. Related: pre-existing `-π` asymmetry bug discovered during pre-flight, tracked separately in `REFACTOR_BACKLOG.md` "Algorithmic precision notes".
 4. Combine topbar + HUD + stats replay into one combined `SKPicture` to hit the 10-16 GPU-call budget. **Behavior-identical** because SKPicture replay is order-preserving.
 5. Document every remaining deliberate rule-breaker in a one-line code comment at the call site (this is the ONLY place comments survive), e.g. `// perf-rule-5 exempt: inside cached SKPicture`.
-6. **FASE 6.6 — Pheromone overlay performance optimization (NEW).**
-   Context: tijdens testen rond FASE 7.1 ontdekt dat met de pheromone-overlay AAN de fps van ~2000+ naar ~70 zakt (~96 % drop). Dit is een echte bottleneck in de render-path die gefixt moet worden zonder visueel resultaat te wijzigen.
+6. **FASE 6.6 — Pheromone overlay performance optimization ✅ COMPLETED (2026-04-19).**
+   Result: FPS 131 → 1850 (14×). Frame time 7260 → 540 μs. Overlay cost 5200 → 216 μs (24×). Inner loop 4300 → 189 μs (23×). GPU draw calls 48000 → 2. Harness byte-identiek × 3. Visueel identiek.
+   Commits: STAP A (`PheromoneGrid.HasAnyRenderableTrail()` defensive early-exit guard) + STAP B (`PheromoneGrid.GetRawIntensityArray()` + two-layer bitmap with direct array access in inner loop, premul via `SkMulDiv255Round`, `Marshal.Copy`, `DrawBitmap × 2` met `FilterQuality.None`). Discovery: UI draw is now dominant (~200 μs/frame) — tracked in `REFACTOR_BACKLOG.md`.
+   Context (originele): tijdens testen rond FASE 7.1 ontdekt dat met de pheromone-overlay AAN de fps van ~2000+ naar ~70 zakt (~96 % drop). Dit is een echte bottleneck in de render-path die gefixt moet worden zonder visueel resultaat te wijzigen.
    Scope (mogelijk — profiling-driven; niet alles hoeft te landen):
    - Profiling-based root-cause analyse (welke draw-calls / allocations zijn de hotspot).
    - `SKPicture`-caching van de pheromone-layer (rebuild alleen op dirty tick).
@@ -325,7 +327,7 @@ Upcoming, in execution order:
 5. **FASE 6.2** — `UiLineChart` paint allocation cleanup.
 6. **FASE 6.3** — replace `SteeringSystem.NormalizeAngle` while-loop with `Math.IEEERemainder`.
 7. **FASE 6.5** — one-line comments documenting deliberate perf-rule exemptions.
-8. **FASE 6.6 (NEW)** — pheromone overlay performance optimization (96 % fps-drop fix; visueel-identiek, harness-identiek).
+8. **FASE 6.6** ✅ COMPLETED (2026-04-19) — pheromone overlay performance optimization. FPS 131 → 1850 (14×). Zie details boven.
 9. **STOP for evaluation** — herschouwen of FASE 2, 4, 5, 9 nog in huidige vorm nodig zijn of dat de scope moet wijzigen.
 
 FASE 2 (docs), FASE 4 (Engine split), FASE 5 (PheromoneGrid unify) en FASE 9 (CHANGES.md) staan voorlopig op hold tot de bovenstaande evaluatie.
@@ -347,5 +349,3 @@ Before I touch a single line of code:
 2. **Approve** the FASE 0 characterization-harness approach (one seeded run, 60s, per-second digest).
 3. **Approve** FASE 3's `AntGoal` decision (Option A = inline; Option B = enrich).
 4. **Confirm** you want me to commit per commit with descriptive messages (ok for your workflow?).
-
-Once approved, I start with FASE 0, land it, share the harness digest, wait for your "go" on FASE 1, and iterate.

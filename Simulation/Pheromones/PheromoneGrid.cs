@@ -49,6 +49,12 @@ public class PheromoneGrid
         _enemyActiveSet = new Dictionary<int, bool[,]>();
     }
 
+    public bool HasAnyRenderableTrail()
+    {
+        return _activeCells[(int)PheromoneChannel.HomeTrail].Count > 0
+            || _activeCells[(int)PheromoneChannel.FoodTrail].Count > 0;
+    }
+
     public void MarkPermanentHome(int x, int y)
     {
         if (!InBounds(x, y))
@@ -183,6 +189,16 @@ public class PheromoneGrid
             return max;
         }
         return _intensity[(int)channel][x, y];
+    }
+
+    public float[,] GetRawIntensityArray(PheromoneChannel channel)
+    {
+        int c = (int)channel;
+        if (c == (int)PheromoneChannel.EnemyTrail)
+        {
+            throw new InvalidOperationException("EnemyTrail has no unified intensity array.");
+        }
+        return _intensity[c];
     }
 
     public float GetDistance(PheromoneChannel channel, int x, int y)
