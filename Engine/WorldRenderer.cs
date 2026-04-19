@@ -24,6 +24,7 @@ public sealed class WorldRenderer : IDisposable
     private readonly Func<World> _worldGetter;
     private readonly Camera _camera;
     private readonly SKColor _foodSkColor;
+    private readonly FrameProfiler _profiler;
     private readonly List<IDisposable> _ownedDisposables = new List<IDisposable>();
 
     private SKPicture _gridPicture = null!;
@@ -34,11 +35,12 @@ public sealed class WorldRenderer : IDisposable
     private int _nestsPictureCachedCount = -1;
     private SKPath _nestPath;
 
-    public WorldRenderer(Func<World> worldGetter, Camera camera, SKColor foodSkColor)
+    public WorldRenderer(Func<World> worldGetter, Camera camera, SKColor foodSkColor, FrameProfiler profiler)
     {
         _worldGetter = worldGetter;
         _camera = camera;
         _foodSkColor = foodSkColor;
+        _profiler = profiler;
         _nestPath = Own(new SKPath());
     }
 
@@ -85,7 +87,9 @@ public sealed class WorldRenderer : IDisposable
     /// DrawFoodNestsAndGridLines.</summary>
     public void DrawBase(SKCanvas canvas)
     {
+        _profiler.AccumulatePhaseBegin(ProfilePhase.GridDraw);
         canvas.DrawPicture(_gridPicture);
+        _profiler.AccumulatePhaseEnd(ProfilePhase.GridDraw);
     }
 
     /// <summary>Draw food cells, nest colonies, and grid lines onto the given
@@ -95,6 +99,7 @@ public sealed class WorldRenderer : IDisposable
     {
         World world = _worldGetter();
 
+        _profiler.BeginPhase(ProfilePhase.FoodDraw);
         if (world.FoodVersion != _foodPictureCachedVersion)
         {
             RecordFoodPicture();
@@ -103,7 +108,9 @@ public sealed class WorldRenderer : IDisposable
         {
             canvas.DrawPicture(_foodPicture);
         }
+        _profiler.EndPhase(ProfilePhase.FoodDraw);
 
+        _profiler.BeginPhase(ProfilePhase.NestsDraw);
         int colonyCount = world.Colonies.Count;
         if (colonyCount != _nestsPictureCachedCount)
         {
@@ -113,11 +120,14 @@ public sealed class WorldRenderer : IDisposable
         {
             canvas.DrawPicture(_nestsPicture);
         }
+        _profiler.EndPhase(ProfilePhase.NestsDraw);
 
+        _profiler.AccumulatePhaseBegin(ProfilePhase.GridDraw);
         if (_gridLinesPicture != null && _camera.Zoom >= 0.5f)
         {
             canvas.DrawPicture(_gridLinesPicture);
         }
+        _profiler.AccumulatePhaseEnd(ProfilePhase.GridDraw);
     }
 
     private void RecordGridPicture()

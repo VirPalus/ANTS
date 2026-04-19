@@ -37,6 +37,10 @@ public partial class Engine : Form
     private OverlayRenderer _overlayRenderer = null!;
     private HudRenderer _hudRenderer = null!;
     private StatsPanelRenderer _statsRenderer = null!;
+    private FrameProfiler _profiler = null!;
+    private ProfilerUI _profilerUI = null!;
+    private ProfilerGraphWindow _profilerGraphWindow = null!;
+    private long _frameCounter;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
     private int _frameCap = 10000;
@@ -69,7 +73,19 @@ public partial class Engine : Form
         InitializeWorld();
         _sim = new SimDriver(_world);
 
-        _topBar = new UiTopBar(SimDriver.SpeedChoices, () => _sim.IsPaused, () => _sim.Speed, OnPauseToggled, OnSpeedChanged);
+        // Profiler must exist BEFORE _topBar (isProfilerActive getter)
+        // and BEFORE WorldRenderer/OverlayRenderer (ctor dependencies).
+        _profiler = Own(new FrameProfiler());
+        _profilerGraphWindow = Own(new ProfilerGraphWindow(_profiler, () => ClientSize));
+
+        _topBar = new UiTopBar(
+            SimDriver.SpeedChoices,
+            () => _sim.IsPaused,
+            () => _sim.Speed,
+            OnPauseToggled,
+            OnSpeedChanged,
+            ToggleProfiler,
+            () => _profiler.IsEnabled);
         _startOverlay = new UiStartOverlay(OnStartOverlayPick);
         string mapsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Maps");
         _startOverlay.Scan(mapsDir, 180);
@@ -82,10 +98,12 @@ public partial class Engine : Form
             _buttons,
             _selection,
             _placement,
+            _profilerGraphWindow,
             () => _skControl.Focus(),
             () => _topBarDirty = true,
             () => _buttonsDirty = true,
-            OnPauseToggled);
+            OnPauseToggled,
+            ToggleProfiler);
         _skControl.MouseDown += _input.OnMouseDown;
         _skControl.MouseMove += _input.OnMouseMove;
         _skControl.MouseUp += _input.OnMouseUp;
@@ -104,12 +122,13 @@ public partial class Engine : Form
         }
 
         _antsRenderer = Own(new AntsRenderer(_paints, _camera));
-        _worldRenderer = Own(new WorldRenderer(() => _world, _camera, _foodSkColor));
-        _overlayRenderer = Own(new OverlayRenderer(_paints, _camera, () => _world));
+        _worldRenderer = Own(new WorldRenderer(() => _world, _camera, _foodSkColor, _profiler));
+        _overlayRenderer = Own(new OverlayRenderer(_paints, _camera, () => _world, _profiler));
         _hudRenderer = Own(new HudRenderer(_paints));
         _hudRenderer.Start();
         _statsRenderer = Own(new StatsPanelRenderer(_paints, () => _world, _foodSkColor));
         _statsRenderer.Start(ClientSize.Width, ClientSize.Height);
+        _profilerUI = new ProfilerUI(_profiler, () => _frameCounter);
         _worldRenderer.Rebuild();
         RecordTopBarPicture();
         UpdateFrameCapTiming();
@@ -254,9 +273,14 @@ public partial class Engine : Form
 
         _hudRenderer.TickFrameStart();
 
+        _frameCounter++;
+        _profiler.BeginFrame(_frameCounter);
+
+        _profiler.BeginPhase(ProfilePhase.Sim);
         long simStartTicks = Stopwatch.GetTimestamp();
         _sim.Advance();
         long simEndTicks = Stopwatch.GetTimestamp();
+        _profiler.EndPhase(ProfilePhase.Sim);
         _hudRenderer.ReportSimStageTicks(simEndTicks - simStartTicks);
 
         _input.ApplyKeyboardPan();
@@ -268,6 +292,8 @@ public partial class Engine : Form
 
         long endTicks = Stopwatch.GetTimestamp();
         _hudRenderer.ReportFrameTicks(endTicks - startTicks);
+        _profiler.ReportFrameTicks(endTicks - startTicks);
+        _profiler.EndFrame();
     }
 
     protected override void OnResize(EventArgs e)
@@ -317,6 +343,7 @@ public partial class Engine : Form
         pheromoneButton.IsActive = () => _showPheromones;
         CacheButtonTextPosition(pheromoneButton);
         _buttons.Add(pheromoneButton);
+
         _buttonsDirty = true;
         _topBarDirty = true;
 
@@ -400,6 +427,34 @@ public partial class Engine : Form
         _showPheromones = !_showPheromones;
     }
 
+    private void ToggleProfiler()
+    {
+        if (_profiler == null) return;
+        try
+        {
+            if (_profiler.IsEnabled)
+            {
+                _profiler.Disable();
+                _profilerGraphWindow?.Hide();
+            }
+            else
+            {
+                _profiler.Enable();
+                if (_profiler.IsEnabled)
+                {
+                    _profilerGraphWindow?.Show();
+                }
+            }
+        }
+        catch
+        {
+            // Surface only via _profiler.LastError; never crash UI.
+        }
+        // Profile button lives in the top bar now (fase-4.12-fixup),
+        // so the top-bar picture cache is the one that needs invalidating.
+        _topBarDirty = true;
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
@@ -427,31 +482,47 @@ public partial class Engine : Form
             return;
         }
 
+        _profiler.BeginPhase(ProfilePhase.PaintTotal);
+
+        _profiler.BeginPhase(ProfilePhase.CanvasSetup);
         canvas.Save();
         _camera.Apply(canvas);
+        _profiler.EndPhase(ProfilePhase.CanvasSetup);
+
+        // fase-4.12-fixup variant A: WorldDraw phase replaced by
+        // GridDraw/FoodDraw/NestsDraw, instrumented inside WorldRenderer.
         _worldRenderer.DrawBase(canvas);
 
         if (_showPheromones)
         {
+            _profiler.BeginPhase(ProfilePhase.OverlayDraw);
             _overlayRenderer.Draw(canvas, ClientSize.Width, ClientSize.Height);
+            _profiler.EndPhase(ProfilePhase.OverlayDraw);
         }
 
         _worldRenderer.DrawFoodNestsAndGridLines(canvas);
 
         IReadOnlyList<Colony> colonies = _world.Colonies;
+        _profiler.BeginPhase(ProfilePhase.AntsDraw);
         long antStartTicks = Stopwatch.GetTimestamp();
         if (_antsRenderer.DrawAllColonies(canvas, colonies))
         {
             long antEndTicks = Stopwatch.GetTimestamp();
             _hudRenderer.ReportAntStageTicks(antEndTicks - antStartTicks);
         }
+        _profiler.EndPhase(ProfilePhase.AntsDraw);
 
+        _profiler.BeginPhase(ProfilePhase.Placement);
         _placement.DrawGhost(canvas, _world);
+        _profiler.EndPhase(ProfilePhase.Placement);
 
+        _profiler.BeginPhase(ProfilePhase.Selection);
         _selection.DrawOverlay(canvas, ClientSize.Width, ClientSize.Height);
         canvas.Restore();
         _selection.DrawInfoPanel(canvas);
+        _profiler.EndPhase(ProfilePhase.Selection);
 
+        _profiler.AccumulatePhaseBegin(ProfilePhase.Buttons);
         if (_topBarDirty)
         {
             RecordTopBarPicture();
@@ -460,9 +531,13 @@ public partial class Engine : Form
         {
             canvas.DrawPicture(_topBarPicture);
         }
+        _profiler.AccumulatePhaseEnd(ProfilePhase.Buttons);
 
+        _profiler.BeginPhase(ProfilePhase.StatsDraw);
         _statsRenderer.Draw(canvas);
+        _profiler.EndPhase(ProfilePhase.StatsDraw);
 
+        _profiler.AccumulatePhaseBegin(ProfilePhase.Buttons);
         if (_buttonsDirty)
         {
             RecordButtonsPicture();
@@ -471,8 +546,18 @@ public partial class Engine : Form
         {
             canvas.DrawPicture(_buttonsPicture);
         }
+        _profiler.AccumulatePhaseEnd(ProfilePhase.Buttons);
 
+        _profiler.BeginPhase(ProfilePhase.HudDraw);
         _hudRenderer.Draw(canvas);
+        _profiler.EndPhase(ProfilePhase.HudDraw);
+
+        _profiler.BeginPhase(ProfilePhase.ProfilerWindow);
+        _profilerUI.Draw(canvas);
+        _profilerGraphWindow.Draw(canvas);
+        _profiler.EndPhase(ProfilePhase.ProfilerWindow);
+
+        _profiler.EndPhase(ProfilePhase.PaintTotal);
     }
 
     protected override void Dispose(bool disposing)

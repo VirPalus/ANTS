@@ -15,10 +15,12 @@ public sealed class InputRouter
     private readonly IReadOnlyList<UiButton> _buttons;
     private readonly SelectionController _selection;
     private readonly PlacementController _placement;
+    private readonly ProfilerGraphWindow _profilerGraphWindow;
     private readonly Action _focusCanvas;
     private readonly Action _markTopBarDirty;
     private readonly Action _markButtonsDirty;
     private readonly Action _onPauseToggled;
+    private readonly Action _onProfilerToggled;
 
     private bool _isRightDragging;
     private int _rightDragLastX;
@@ -37,10 +39,12 @@ public sealed class InputRouter
         IReadOnlyList<UiButton> buttons,
         SelectionController selection,
         PlacementController placement,
+        ProfilerGraphWindow profilerGraphWindow,
         Action focusCanvas,
         Action markTopBarDirty,
         Action markButtonsDirty,
-        Action onPauseToggled)
+        Action onPauseToggled,
+        Action onProfilerToggled)
     {
         _camera = camera;
         _worldGetter = worldGetter;
@@ -49,10 +53,12 @@ public sealed class InputRouter
         _buttons = buttons;
         _selection = selection;
         _placement = placement;
+        _profilerGraphWindow = profilerGraphWindow;
         _focusCanvas = focusCanvas;
         _markTopBarDirty = markTopBarDirty;
         _markButtonsDirty = markButtonsDirty;
         _onPauseToggled = onPauseToggled;
+        _onProfilerToggled = onProfilerToggled;
         _lastPanTicks = Stopwatch.GetTimestamp();
     }
 
@@ -68,6 +74,13 @@ public sealed class InputRouter
         }
 
         if (e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        // Profiler graph window has top-most capture priority when visible:
+        // drag/resize/close/zoom must intercept before any world-layer input.
+        if (_profilerGraphWindow.IsVisible && _profilerGraphWindow.HandleMouseDown(e.X, e.Y))
         {
             return;
         }
@@ -106,6 +119,10 @@ public sealed class InputRouter
 
     public void OnMouseMove(object? sender, MouseEventArgs e)
     {
+        // Forward to graph window unconditionally so in-flight drag/resize
+        // continues even when the pointer leaves the window bounds mid-gesture.
+        _profilerGraphWindow.HandleMouseMove(e.X, e.Y);
+
         _placement.UpdateMouseCoords(e.X, e.Y);
 
         bool wasPauseHovered = _topBar.PauseButton.IsHovered;
@@ -139,6 +156,9 @@ public sealed class InputRouter
 
     public void OnMouseUp(object? sender, MouseEventArgs e)
     {
+        // Always clear any in-flight graph-window drag/resize state on release.
+        _profilerGraphWindow.HandleMouseUp();
+
         if (e.Button == MouseButtons.Right)
         {
             _isRightDragging = false;
@@ -195,6 +215,13 @@ public sealed class InputRouter
         if (e.KeyCode == Keys.Space)
         {
             _onPauseToggled();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.F2)
+        {
+            _onProfilerToggled();
             e.Handled = true;
             return;
         }

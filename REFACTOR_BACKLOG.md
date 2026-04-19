@@ -791,3 +791,105 @@ cut; a future optimization could route HUD timing through the
 profiler when enabled. NOT an issue to fix in fase-4.11 or fase-4.12.
 
 Discovered: 2026-04-19 during fase-4.11 infrastructure landing.
+---
+
+## fase-4.12 landing note (observer effect accepted)
+
+fase-4.12 wired the profiler exactly as planned in the fase-4.11
+tracking note above. Scope delivered:
+- `FrameProfiler` constructed in Engine ctor via `Own(new FrameProfiler())`.
+- Accumulate pair (`AccumulatePhaseBegin` / `AccumulatePhaseEnd`)
+  added to `FrameProfiler` to support the WorldDraw split around
+  the optional pheromone OverlayDraw segment.
+- `LastError` property added to `FrameProfiler` — Enable() catches
+  writer construction/start exceptions and surfaces them instead
+  of crashing the UI.
+- New `Engine/ProfilerUI.cs` draws a HUD-adjacent status indicator
+  (PROFILING label, dropped-sample counter, last-error text) only
+  when `_profiler.IsEnabled`.
+- Profiler button added to the bottom button row (4 buttons wide
+  now: Add Colony / Add Food / Pheromones / Profiler).
+- F2 hotkey routed through `InputRouter` (ctor param
+  `onProfilerToggled`).
+- HUD timing preserved unchanged — `ReportSimStageTicks`,
+  `ReportAntStageTicks`, `ReportFrameTicks` still each appear
+  exactly 1x in Engine.cs.
+
+The observer-effect doubling (~0.018% → ~0.036% of a 4.17 ms frame
+at 240 FPS) is accepted as designed; it applies ONLY when the
+profiler is toggled on. With the profiler off the hot path is
+zero-cost (single bool check per Begin/End* call before early
+return).
+
+Harness 3x byte-identical with digest
+`78ad61829002a3194554ac4681feb98e` (profiler never Enabled by
+harness, so all Begin/End* calls early-return).
+
+Discovered: 2026-04-19 during fase-4.12 wiring.
+
+### fase-4.12-fixup — Variant A (Profiler HUD + Graph Window)
+
+Resolves the six defects from the rejected fase-4.12 implementation.
+Scope delivered:
+
+- **Top-bar Profile button** flush-right on the top bar (88×32),
+  red-tinted background when active (`SKColor(140, 40, 40)`), hover
+  states. MapName centered between the speed selector and the
+  profile button. Bottom-row button count reduced from 4 to 3
+  (the old `profilerButton` was moved to the top bar — 0 references
+  remain in `Engine.cs`).
+- **6-row HUD status panel** 220×196 drawn below the main HUD at
+  `y = UiTopBar.BarHeight + HudGap + HudHeight + HudGap` (= 148f):
+  REC + rotation index, Frames, AvgFr, AvgRd, AvgOv, File (CSV
+  basename, truncated to 20 chars). Red accent `SKColor(220, 70, 70)`
+  for the ● dot and the `REC` label.
+- **Running EMA averages** (`AvgFrameMs`, `AvgRenderMs`,
+  `AvgOverlayMs`) on `FrameProfiler`, `EmaAlpha = 0.05`. New
+  `ReportFrameTicks(long)` public entry point. Fed inside
+  `EndFrame()` so averages stay in lockstep with the per-frame
+  ring-buffer push into `ProfilerSeries`.
+- **CSV output relocated to `%TEMP%`** (was
+  `AppContext.BaseDirectory + /ProfileLogs/`). Files now named
+  `pheromone_profile_{N}.txt` (1-based rotation index, incremented
+  BEFORE naming so `RotationIndex` returns the CURRENT file).
+  `CurrentFileName` and `RotationIndex` exposed as thread-safe
+  public properties (lock-guarded on `_ioLock`). CSV header extended
+  with the seven new sub-phase columns (`grid_us`, `food_us`,
+  `nests_us`, `clear_us`, `inner_us`, `marshal_us`, `bitmap_us`).
+- **ProfilerGraphWindow** — draggable/resizable overlay window
+  (min 600×400, remembers position across Show/Hide, auto-centers
+  on first open, clamped to client bounds). Three sub-graphs stacked
+  vertically: (1) seven paint-stage metrics (frame/sim/world/overlay/
+  ants/stats/hud/paint), (2) three world sub-phases (grid/food/nests),
+  (3) four overlay internals (clear/inner/marshal/bitmap). Title bar
+  with zoom-level label (`1s` / `5s` / `15s` / `30s`), `[-]`, `[+]`
+  and `[X]` buttons. Bottom-right resize triangle.
+- **ProfilerSeries** — 13 per-metric float[18000] ring buffers
+  (~912 KiB budget total). `CopyLast(int metricIndex, Span<float>)`
+  yields samples oldest→newest. Feeds the graph window.
+- **Variant A instrumentation split**: `WorldRenderer.DrawBase`
+  and `DrawFoodNestsAndGridLines` now use `AccumulatePhase*` for
+  `GridDraw` and regular `BeginPhase`/`EndPhase` for `FoodDraw` /
+  `NestsDraw` — replaces the old single `WorldDraw` phase.
+  `OverlayRenderer.Draw` wraps the two `Array.Clear` calls, the
+  x/y inner loop, the two `Marshal.Copy` calls, and the two
+  `canvas.DrawBitmap` calls in `ArrayClear` / `InnerLoop` /
+  `MarshalCopy` / `DrawBitmap` phases respectively.
+- **InputRouter top-most capture**: `OnMouseDown` routes to
+  `ProfilerGraphWindow.HandleMouseDown(...)` first when
+  `IsVisible`, returning early on consume. `OnMouseMove` and
+  `OnMouseUp` forward unconditionally so in-flight drag/resize
+  gestures continue even when the cursor leaves the window bounds.
+- **F2 hotkey** preserved unchanged (1 occurrence in
+  `InputRouter.cs`, matches the existing `onProfilerToggled`
+  callback which now also shows/hides the graph window).
+
+Zero-cost-when-disabled guarantee preserved. All
+`AccumulatePhaseBegin` calls go through `FrameProfiler.IsEnabled`
+early-exit, same as the regular `BeginPhase` path.
+
+Harness 3× byte-identical with digest
+`78ad61829002a3194554ac4681feb98e` (profiler never Enabled by
+harness).
+
+Landed: 2026-04-19.

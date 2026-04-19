@@ -12,8 +12,10 @@ using System.Threading;
 ///
 /// Owns a dedicated <see cref="Thread"/> that drains the SPSC ring
 /// buffer every 500 ms, formats samples as CSV rows, and appends
-/// them to a rotating set of files in
-/// <c>AppContext.BaseDirectory/ProfileLogs/</c>.
+/// them to a rotating set of files in the user's temp directory
+/// (<see cref="Path.GetTempPath"/>). fase-4.12-fixup moved the
+/// output location there so the files are easy to locate via
+/// %TEMP% and don't clutter the install directory.
 ///
 /// Lifecycle:
 ///   * Construct (in <see cref="FrameProfiler.Enable"/>, lazy).
@@ -25,12 +27,14 @@ using System.Threading;
 ///     it to drain remaining samples and close the file.
 ///   * <see cref="Dispose"/> — Stop + resource release.
 ///
-/// File rotation:
-///   * Rotate when the current file exceeds <see cref="FileSizeRotateBytes"/>
-///     (default 100 MB).
-///   * Filename pattern: profile_YYYYMMDD_HHMMSS_NNN.csv where
-///     YYYYMMDD_HHMMSS is the session-stamp captured at Start, and
-///     NNN is the rotation sequence (001, 002, ...).
+/// File naming / rotation:
+///   * Base path is %TEMP%/pheromone_profile_{N}.txt where {N} is
+///     the 1-based rotation index.
+///   * A new file is opened when the current one exceeds
+///     <see cref="FileSizeRotateBytes"/> (default 100 MB).
+///   * <see cref="CurrentFileName"/> and <see cref="RotationIndex"/>
+///     are exposed to the HUD so the user can see where the active
+///     log is being written.
 /// </summary>
 public sealed class ProfileWriter : IDisposable
 {
@@ -47,7 +51,9 @@ public sealed class ProfileWriter : IDisposable
     private const int DrainBatch = 2048;
 
     private static readonly string CsvHeaderLine =
-        "frame,ts_ms,sim_us,world_us,overlay_us,ants_us,stats_us,hud_us,paint_us";
+        "frame,ts_ms,sim_us,world_us,overlay_us,ants_us,stats_us,hud_us,paint_us," +
+        "grid_us,food_us,nests_us,clear_us,inner_us,marshal_us,bitmap_us," +
+        "canvasSetup_us,placement_us,selection_us,buttons_us,profilerWindow_us";
 
     private readonly RingBuffer<ProfileSample> _ring;
     private readonly object _ioLock = new object();
@@ -58,10 +64,13 @@ public sealed class ProfileWriter : IDisposable
     private bool _started;
     private bool _disposed;
 
-    // Session-scoped CSV state.
-    private string _sessionStamp = string.Empty;
-    private int _rotationSeq;
+    // Session-scoped CSV state. _currentRotation starts at 0; OpenNextFile
+    // increments BEFORE naming, so the first file is pheromone_profile_1.txt
+    // and the <see cref="RotationIndex"/> getter returns the index of the
+    // currently-open file (not the next one).
+    private int _currentRotation;
     private string _logDirectory = string.Empty;
+    private string _currentFileName = string.Empty;
 
     // Active file. null when Start has not been called or after Dispose.
     private FileStream? _currentStream;
@@ -82,6 +91,30 @@ public sealed class ProfileWriter : IDisposable
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
     }
 
+    /// <summary>Current CSV output basename (e.g. "pheromone_profile_3.txt"). Empty before <see cref="Start"/>.</summary>
+    public string CurrentFileName
+    {
+        get
+        {
+            lock (_ioLock)
+            {
+                return _currentFileName;
+            }
+        }
+    }
+
+    /// <summary>Current 1-based rotation index. Zero before <see cref="Start"/>.</summary>
+    public int RotationIndex
+    {
+        get
+        {
+            lock (_ioLock)
+            {
+                return _currentRotation;
+            }
+        }
+    }
+
     /// <summary>
     /// Spawns the background drain thread and opens the first CSV
     /// file. Idempotent. Throws on a disposed instance.
@@ -91,9 +124,8 @@ public sealed class ProfileWriter : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_started) return;
 
-        _sessionStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-        _rotationSeq = 1;
-        _logDirectory = Path.Combine(AppContext.BaseDirectory, "ProfileLogs");
+        _currentRotation = 0;
+        _logDirectory = Path.GetTempPath();
         Directory.CreateDirectory(_logDirectory);
         OpenNextFile();
 
@@ -155,7 +187,7 @@ public sealed class ProfileWriter : IDisposable
     private void WriterLoop()
     {
         Span<ProfileSample> batch = stackalloc ProfileSample[DrainBatch];
-        StringBuilder sb = new StringBuilder(DrainBatch * 80);
+        StringBuilder sb = new StringBuilder(DrainBatch * 120);
 
         while (!_stopFlag)
         {
@@ -208,6 +240,30 @@ public sealed class ProfileWriter : IDisposable
                 sb.Append((s.HudDrawTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
                 sb.Append(',');
                 sb.Append((s.PaintTotalTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.GridDrawTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.FoodDrawTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.NestsDrawTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.ArrayClearTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.InnerLoopTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.MarshalCopyTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.DrawBitmapTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.CanvasSetupTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.PlacementTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.SelectionTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.ButtonsTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
+                sb.Append(',');
+                sb.Append((s.ProfilerWindowTicks * tickToUs).ToString("F1", CultureInfo.InvariantCulture));
                 sb.Append('\n');
             }
 
@@ -243,12 +299,13 @@ public sealed class ProfileWriter : IDisposable
             _currentWriter?.Dispose();
             _currentStream?.Dispose();
 
+            _currentRotation++;
             string name = string.Format(
                 CultureInfo.InvariantCulture,
-                "profile_{0}_{1:D3}.csv",
-                _sessionStamp,
-                _rotationSeq);
+                "pheromone_profile_{0}.txt",
+                _currentRotation);
             string path = Path.Combine(_logDirectory, name);
+            _currentFileName = name;
 
             _currentStream = new FileStream(
                 path,
@@ -261,10 +318,8 @@ public sealed class ProfileWriter : IDisposable
             };
 
             long droppedSoFar = _ring.DroppedCount;
-            _currentWriter.Write("# ANTS FrameProfiler session=");
-            _currentWriter.Write(_sessionStamp);
-            _currentWriter.Write(" rotation=");
-            _currentWriter.Write(_rotationSeq.ToString("D3", CultureInfo.InvariantCulture));
+            _currentWriter.Write("# ANTS FrameProfiler rotation=");
+            _currentWriter.Write(_currentRotation.ToString("D3", CultureInfo.InvariantCulture));
             _currentWriter.Write(" dropped_so_far=");
             _currentWriter.Write(droppedSoFar.ToString(CultureInfo.InvariantCulture));
             _currentWriter.Write('\n');
@@ -273,7 +328,6 @@ public sealed class ProfileWriter : IDisposable
             _currentWriter.Flush();
 
             _currentSize = _currentStream.Position;
-            _rotationSeq++;
         }
     }
 }

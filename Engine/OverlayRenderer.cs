@@ -20,6 +20,7 @@ public sealed class OverlayRenderer : IDisposable
     private readonly PaintCache _paints;
     private readonly Camera _camera;
     private readonly Func<World> _worldGetter;
+    private readonly FrameProfiler _profiler;
 
     private readonly List<IDisposable> _ownedDisposables = new();
 
@@ -31,11 +32,12 @@ public sealed class OverlayRenderer : IDisposable
     private float[][,]? _overlayFoodArrays;
     private SKColor[]? _overlayColonyColors;
 
-    public OverlayRenderer(PaintCache paints, Camera camera, Func<World> worldGetter)
+    public OverlayRenderer(PaintCache paints, Camera camera, Func<World> worldGetter, FrameProfiler profiler)
     {
         _paints = paints;
         _camera = camera;
         _worldGetter = worldGetter;
+        _profiler = profiler;
     }
 
     public void Draw(SKCanvas canvas, int clientWidth, int clientHeight)
@@ -96,8 +98,10 @@ public sealed class OverlayRenderer : IDisposable
         float[][,] foodArrs = _overlayFoodArrays!;
         SKColor[]  colCols  = _overlayColonyColors!;
         // === end hoist block ==========================================================
+        _profiler.BeginPhase(ProfilePhase.ArrayClear);
         Array.Clear(homeBuf, 0, bufSize);
         Array.Clear(foodBuf, 0, bufSize);
+        _profiler.EndPhase(ProfilePhase.ArrayClear);
 
         _camera.ScreenToWorld(0, 0, out float tlx, out float tly);
         _camera.ScreenToWorld(clientWidth, clientHeight, out float brx, out float bry);
@@ -110,6 +114,7 @@ public sealed class OverlayRenderer : IDisposable
         byte foodColorG = FoodPheromoneColor.Green;
         byte foodColorB = FoodPheromoneColor.Blue;
 
+        _profiler.BeginPhase(ProfilePhase.InnerLoop);
         for (int x = minCX; x <= maxCX; x++)
         {
             for (int y = minCY; y <= maxCY; y++)
@@ -161,13 +166,18 @@ public sealed class OverlayRenderer : IDisposable
                 }
             }
         }
+        _profiler.EndPhase(ProfilePhase.InnerLoop);
 
+        _profiler.BeginPhase(ProfilePhase.MarshalCopy);
         Marshal.Copy(homeBuf, 0, _pheromoneHomeBitmap.GetPixels(), bufSize);
         Marshal.Copy(foodBuf, 0, _pheromoneFoodBitmap!.GetPixels(), bufSize);
+        _profiler.EndPhase(ProfilePhase.MarshalCopy);
 
+        _profiler.BeginPhase(ProfilePhase.DrawBitmap);
         SKRect dest = new SKRect(0, 0, worldWidth * CellSize, worldHeight * CellSize);
         canvas.DrawBitmap(_pheromoneHomeBitmap, dest, _paints.PheromoneBitmapPaint);
         canvas.DrawBitmap(_pheromoneFoodBitmap, dest, _paints.PheromoneBitmapPaint);
+        _profiler.EndPhase(ProfilePhase.DrawBitmap);
     }
 
     private static byte SkMulDiv255Round(byte a, byte b)
