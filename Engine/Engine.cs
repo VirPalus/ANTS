@@ -15,7 +15,6 @@ public partial class Engine : Form
     private const int ButtonHeight = 32;
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
-    private const float KeyboardPanPxPerSecond = 900f;
     private const float FitMarginPx = 40f;
     private const float FoodGreenR = 34f / 255f;
     private const float FoodGreenG = 197f / 255f;
@@ -45,14 +44,7 @@ public partial class Engine : Form
     private bool _showPheromones;
     private SelectionController _selection = null!;
     private PlacementController _placement = null!;
-    private bool _isRightDragging;
-    private int _rightDragLastX;
-    private int _rightDragLastY;
-    private bool _keyPanLeft;
-    private bool _keyPanRight;
-    private bool _keyPanUp;
-    private bool _keyPanDown;
-    private long _lastPanTicks;
+    private InputRouter _input = null!;
     private readonly Stopwatch _fpsStopwatch = new Stopwatch();
     private int _framesThisSecond;
     private int _fps;
@@ -123,10 +115,6 @@ public partial class Engine : Form
         _skControl = new FastSKGLControl();
         _skControl.Dock = DockStyle.Fill;
         _skControl.PaintSurface += OnSkPaintSurface;
-        _skControl.MouseDown += OnSkMouseDown;
-        _skControl.MouseMove += OnSkMouseMove;
-        _skControl.MouseUp += OnSkMouseUp;
-        _skControl.MouseWheel += OnSkMouseWheel;
         Controls.Add(_skControl);
         KeyPreview = true;
 
@@ -138,9 +126,25 @@ public partial class Engine : Form
         string mapsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Maps");
         _startOverlay.Scan(mapsDir, 180);
 
+        _input = new InputRouter(
+            _camera,
+            () => _world,
+            _startOverlay,
+            _topBar,
+            _buttons,
+            _selection,
+            _placement,
+            () => _skControl.Focus(),
+            () => _topBarDirty = true,
+            () => _buttonsDirty = true,
+            OnPauseToggled);
+        _skControl.MouseDown += _input.OnMouseDown;
+        _skControl.MouseMove += _input.OnMouseMove;
+        _skControl.MouseUp += _input.OnMouseUp;
+        _skControl.MouseWheel += _input.OnMouseWheel;
+
         RecalculateLayout();
         _camera.FitWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, FitMarginPx);
-        _lastPanTicks = Stopwatch.GetTimestamp();
 
         if (_startOverlay.Entries.Count > 0)
         {
@@ -417,7 +421,7 @@ public partial class Engine : Form
         long simEndTicks = Stopwatch.GetTimestamp();
         UpdateStageEma(ref _simStageMs, TicksToMilliseconds(simEndTicks - simStartTicks));
 
-        ApplyKeyboardPan();
+        _input.ApplyKeyboardPan();
 
         if (_hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
         {
@@ -727,224 +731,17 @@ public partial class Engine : Form
         _showPheromones = !_showPheromones;
     }
 
-    private void OnSkMouseDown(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Right)
-        {
-            _isRightDragging = true;
-            _rightDragLastX = e.X;
-            _rightDragLastY = e.Y;
-            _skControl.Focus();
-            return;
-        }
-
-        if (e.Button != MouseButtons.Left)
-        {
-            return;
-        }
-
-        if (_startOverlay.Visible)
-        {
-            _startOverlay.HandleClick(e.X, e.Y);
-            return;
-        }
-
-        if (_topBar.HandleClick(e.X, e.Y))
-        {
-            _topBarDirty = true;
-            return;
-        }
-
-        for (int i = 0; i < _buttons.Count; i++)
-        {
-            if (_buttons[i].Contains(e.X, e.Y))
-            {
-                _buttons[i].OnClick();
-                _buttonsDirty = true;
-                return;
-            }
-        }
-
-        if (_placement.HandleMouseDown(e.X, e.Y, _world))
-        {
-            return;
-        }
-
-        _selection.TrySelect(e.X, e.Y, _world);
-    }
-
-    private void OnSkMouseMove(object? sender, MouseEventArgs e)
-    {
-        _placement.UpdateMouseCoords(e.X, e.Y);
-
-        bool wasPauseHovered = _topBar.PauseButton.IsHovered;
-        _topBar.UpdateHover(e.X, e.Y);
-        if (_topBar.PauseButton.IsHovered != wasPauseHovered)
-        {
-            _topBarDirty = true;
-        }
-        for (int i = 0; i < _buttons.Count; i++)
-        {
-            bool wasHovered = _buttons[i].IsHovered;
-            _buttons[i].IsHovered = _buttons[i].Contains(e.X, e.Y);
-            if (_buttons[i].IsHovered != wasHovered)
-            {
-                _buttonsDirty = true;
-            }
-        }
-
-        if (_isRightDragging)
-        {
-            int dx = e.X - _rightDragLastX;
-            int dy = e.Y - _rightDragLastY;
-            _rightDragLastX = e.X;
-            _rightDragLastY = e.Y;
-            _camera.PanScreen(dx, dy);
-            return;
-        }
-
-        _placement.HandleMouseMoveDrag(_world);
-    }
-
-    private void OnSkMouseUp(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Right)
-        {
-            _isRightDragging = false;
-            return;
-        }
-
-        if (e.Button == MouseButtons.Left)
-        {
-            _placement.HandleMouseUp();
-        }
-    }
-
-    private void OnSkMouseWheel(object? sender, MouseEventArgs e)
-    {
-        int steps = e.Delta / 120;
-        if (steps == 0 && e.Delta != 0)
-        {
-            steps = e.Delta > 0 ? 1 : -1;
-        }
-        if (steps == 0)
-        {
-            return;
-        }
-
-        float factor = 1f;
-        if (steps > 0)
-        {
-            for (int i = 0; i < steps; i++)
-            {
-                factor *= Camera.ZoomWheelStep;
-            }
-        }
-        else
-        {
-            for (int i = 0; i < -steps; i++)
-            {
-                factor /= Camera.ZoomWheelStep;
-            }
-        }
-
-        _camera.ZoomAt(e.X, e.Y, factor);
-    }
-
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
-
-        if (e.KeyCode == Keys.Escape)
-        {
-            _selection.Clear();
-            _placement.Cancel();
-            e.Handled = true;
-            return;
-        }
-
-        if (e.KeyCode == Keys.Space)
-        {
-            OnPauseToggled();
-            e.Handled = true;
-            return;
-        }
-
-
-        switch (e.KeyCode)
-        {
-            case Keys.A:
-            case Keys.Left:
-                _keyPanLeft = true;
-                e.Handled = true;
-                break;
-            case Keys.D:
-            case Keys.Right:
-                _keyPanRight = true;
-                e.Handled = true;
-                break;
-            case Keys.W:
-            case Keys.Up:
-                _keyPanUp = true;
-                e.Handled = true;
-                break;
-            case Keys.S:
-            case Keys.Down:
-                _keyPanDown = true;
-                e.Handled = true;
-                break;
-        }
+        _input.HandleKeyDown(e);
     }
 
     protected override void OnKeyUp(KeyEventArgs e)
     {
         base.OnKeyUp(e);
-
-        switch (e.KeyCode)
-        {
-            case Keys.A:
-            case Keys.Left:
-                _keyPanLeft = false;
-                break;
-            case Keys.D:
-            case Keys.Right:
-                _keyPanRight = false;
-                break;
-            case Keys.W:
-            case Keys.Up:
-                _keyPanUp = false;
-                break;
-            case Keys.S:
-            case Keys.Down:
-                _keyPanDown = false;
-                break;
-        }
+        _input.HandleKeyUp(e);
     }
-    private void ApplyKeyboardPan()
-    {
-        long nowTicks = Stopwatch.GetTimestamp();
-        float dt = (float)((nowTicks - _lastPanTicks) / (double)Stopwatch.Frequency);
-        _lastPanTicks = nowTicks;
-        if (dt <= 0f || dt > 0.25f)
-        {
-            return;
-        }
-
-        float dx = 0f;
-        float dy = 0f;
-        if (_keyPanLeft) dx += 1f;
-        if (_keyPanRight) dx -= 1f;
-        if (_keyPanUp) dy += 1f;
-        if (_keyPanDown) dy -= 1f;
-        if (dx == 0f && dy == 0f)
-        {
-            return;
-        }
-
-        float step = KeyboardPanPxPerSecond * dt;
-        _camera.PanScreen(dx * step, dy * step);
-    }
-
     private static SKColor ToSkColor(Color color)
     {
         return new SKColor(color.R, color.G, color.B, color.A);

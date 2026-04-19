@@ -382,3 +382,32 @@ Effort: small — extract a static helper like
 `NestGeometry.BuildPath(SKPath path, int cellX, int cellY, int cellSize)`.
 Scope: deferred to fase-4.13 cleanup or later.
 Discovered: 2026-04-19 during fase-4.4 scope-report review.
+
+---
+
+## _buttons list ref stability assumption (InputRouter)
+
+`InputRouter` receives `_buttons` as `IReadOnlyList<UiButton>` in its
+constructor and holds that reference for the lifetime of the router.
+
+Current guarantee: `Engine._buttons` is initialized inline as a fresh
+`List<UiButton>()` and is never reassigned. `RecalculateLayout()`
+mutates the list in-place via `_buttons.Clear()` followed by
+`.Add(...)` calls, so the List instance — and therefore the reference
+held by `InputRouter` — stays stable across relayouts.
+
+Impact: none today (reference stable by construction).
+Latent risk: if a future refactor ever replaces the List instance
+(e.g. `_buttons = new List<UiButton>();` or a swap for a different
+collection type), `InputRouter` would hold a stale reference and
+button hit-testing / hover-diffing would silently break.
+
+If _buttons list reference ever reassigned in future refactor,
+InputRouter would hold stale ref. Current pattern: Clear() + Add()
+keeps ref stable. Defensive `Func<IReadOnlyList<UiButton>>` wrapper
+deferred until needed.
+
+Impact: none today.
+Effort: small (change ctor arg type, add lambda at call site).
+Scope: defer until an actual reassignment need arises.
+Discovered: 2026-04-19 during fase-4.5 scope-report review.
