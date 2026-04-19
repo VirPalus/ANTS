@@ -328,3 +328,35 @@ Scope: buiten FASE 6.6 (rendering pheromone overlay), candidate voor
 FASE 7 of 8.
 Discovered: 2026-04-19 tijdens FASE 6.6 Profiler V2 meting (Windows,
 4 colonies, 02_corridors, 10× speed, 200k+ frames geanalyseerd).
+
+### Follow-camera mutation in draw path (SelectionController)
+
+Current behavior: `SelectionController.DrawOverlay` mutates
+`_camera.OffsetX` / `_camera.OffsetY` inline (follow-selected-ant lerp).
+Draw-path methods should be side-effect free; camera state should be
+advanced during tick (simulation/UI update), not during rendering.
+
+Impact: visual only (camera-follow keeps same behavior); latent bug
+surface if/when render throttling decouples from tick rate.
+Effort: small — extract an `UpdateFollowCamera()` method, call it from
+`Tick()` before `Invalidate()` instead of from `DrawOverlay`.
+Scope: out-of-scope for fase-4.3 (pure move only). Candidate for a
+follow-up input/simulation-refactor phase.
+Discovered: 2026-04-19 during fase-4.3 scope-report review.
+
+### DrawSelectedAntInfoPanel allocates SKPaint per frame (perf-rule-5/8 violation)
+
+Current behavior: `SelectionController.DrawInfoPanel` allocates two
+`SKPaint` instances (`bgPaint`, `textPaint`) every render via
+`using SKPaint bgPaint = new SKPaint();`. This violates the project rule
+that SKPaints should be cached in `PaintCache` and only mutated, not
+allocated per frame.
+
+Impact: micro-GC churn during selection-visible frames. Not a harness
+concern (panel not active in headless runs). Measurable only when an
+ant is selected.
+Effort: small — add dedicated info-panel paints to `PaintCache` or a
+renderer-local cache; replace `using new SKPaint()` with paint reuse.
+Scope: out-of-scope for fase-4.3 (pure move). Fold into fase-4.10
+StatsPanelRenderer context or a dedicated info-panel renderer pass.
+Discovered: 2026-04-19 during fase-4.3 scope-report review.
