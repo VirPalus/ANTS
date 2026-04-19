@@ -38,16 +38,8 @@ public partial class Engine : Form
     private SelectionController _selection = null!;
     private PlacementController _placement = null!;
     private InputRouter _input = null!;
-    private readonly Stopwatch _fpsStopwatch = new Stopwatch();
-    private int _framesThisSecond;
-    private int _fps;
-    private double _lastFrameMs;
-    private double _simStageMs;
-    private double _antStageMs;
-    private const double StageEmaAlpha = 0.05;
     private FastSKGLControl _skControl = null!;
     private PaintCache _paints = null!;
-    private SKPicture _hudPicture = null!;
     private SKPicture _statsPicture = null!;
     private SKPicture _buttonsPicture = null!;
     private bool _buttonsDirty = true;
@@ -58,10 +50,9 @@ public partial class Engine : Form
     private WorldRenderer _worldRenderer = null!;
     private AntsRenderer _antsRenderer = null!;
     private OverlayRenderer _overlayRenderer = null!;
+    private HudRenderer _hudRenderer = null!;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
-    private readonly Stopwatch _hudStopwatch = new Stopwatch();
-    private const int HudUpdateIntervalMs = 50;
     private int _frameCap = 10000;
     private long _ticksPerFrame;
     private long _nextFrameTicks;
@@ -126,13 +117,12 @@ public partial class Engine : Form
             _startOverlay.Visible = false;
         }
 
-        _fpsStopwatch.Start();
-        _hudStopwatch.Start();
-        RecordHudPicture();
-        RecordStatsPicture();
         _antsRenderer = Own(new AntsRenderer(_paints, _camera));
         _worldRenderer = Own(new WorldRenderer(() => _world, _camera, _foodSkColor));
         _overlayRenderer = Own(new OverlayRenderer(_paints, _camera, () => _world));
+        _hudRenderer = Own(new HudRenderer(_paints));
+        _hudRenderer.Start();
+        RecordStatsPicture();
         _worldRenderer.Rebuild();
         RecordTopBarPicture();
         UpdateFrameCapTiming();
@@ -275,33 +265,24 @@ public partial class Engine : Form
     {
         long startTicks = Stopwatch.GetTimestamp();
 
-        _framesThisSecond++;
-
-        if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
-        {
-            _fps = _framesThisSecond;
-            _framesThisSecond = 0;
-            _fpsStopwatch.Restart();
-        }
+        _hudRenderer.TickFrameStart();
 
         long simStartTicks = Stopwatch.GetTimestamp();
         _sim.Advance();
         long simEndTicks = Stopwatch.GetTimestamp();
-        UpdateStageEma(ref _simStageMs, TicksToMilliseconds(simEndTicks - simStartTicks));
+        _hudRenderer.ReportSimStageTicks(simEndTicks - simStartTicks);
 
         _input.ApplyKeyboardPan();
 
-        if (_hudStopwatch.ElapsedMilliseconds >= HudUpdateIntervalMs)
+        if (_hudRenderer.MaybeRebuild())
         {
-            RecordHudPicture();
             RecordStatsPicture();
-            _hudStopwatch.Restart();
         }
 
         _skControl.RenderFrameDirect();
 
         long endTicks = Stopwatch.GetTimestamp();
-        _lastFrameMs = TicksToMilliseconds(endTicks - startTicks);
+        _hudRenderer.ReportFrameTicks(endTicks - startTicks);
     }
 
     protected override void OnResize(EventArgs e)
@@ -384,64 +365,6 @@ public partial class Engine : Form
     }
 
 
-    private void RecordHudPicture()
-    {
-        // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
-        float hudW = 150f;
-        float hudH = 84f;
-        SKRect cullRect = new SKRect(0, 0, hudW + 20f, hudH + 20f);
-
-        SKPictureRecorder recorder = new SKPictureRecorder();
-        SKCanvas recordingCanvas = recorder.BeginRecording(cullRect);
-
-        float px = 8f;
-        float py = UiTopBar.BarHeight + 8f;
-        using (SKPaint bgPaint = UiTheme.NewFillPaint(UiTheme.BgPanel))
-        using (SKPaint brPaint = UiTheme.NewStrokePaint(UiTheme.BorderSubtle, UiTheme.BorderThin))
-        {
-            UiPanel.DrawWithBorder(recordingCanvas, bgPaint, brPaint, px, py, hudW, hudH, UiTheme.CornerMedium);
-        }
-
-        using (SKPaint hudText = new SKPaint())
-        {
-            hudText.Style = SKPaintStyle.Fill;
-            hudText.IsAntialias = true;
-            hudText.TextSize = UiTheme.FontSmall;
-
-            float lineStep = 16f;
-            float baseX = px + 10f;
-            float baseY = py + 6f - hudText.FontMetrics.Ascent;
-
-            float valX = baseX + 50f;
-
-            hudText.Color = UiTheme.TextMuted;
-            recordingCanvas.DrawText("FPS", baseX, baseY, hudText);
-            hudText.Color = UiTheme.TextStrong;
-            recordingCanvas.DrawText(_fps.ToString(CultureInfo.InvariantCulture), valX, baseY, hudText);
-
-            baseY += lineStep;
-            hudText.Color = UiTheme.TextMuted;
-            recordingCanvas.DrawText("Frame", baseX, baseY, hudText);
-            hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_lastFrameMs.ToString("F2", CultureInfo.InvariantCulture) + " ms", valX, baseY, hudText);
-
-            baseY += lineStep;
-            hudText.Color = UiTheme.TextMuted;
-            recordingCanvas.DrawText("Sim", baseX, baseY, hudText);
-            hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_simStageMs.ToString("F2", CultureInfo.InvariantCulture) + " ms", valX, baseY, hudText);
-
-            baseY += lineStep;
-            hudText.Color = UiTheme.TextMuted;
-            recordingCanvas.DrawText("Ants", baseX, baseY, hudText);
-            hudText.Color = UiTheme.TextBody;
-            recordingCanvas.DrawText(_antStageMs.ToString("F3", CultureInfo.InvariantCulture) + " ms", valX, baseY, hudText);
-        }
-
-        Replace(ref _hudPicture!, recorder.EndRecording());
-        recorder.Dispose();
-    }
-
     private void RecordButtonsPicture()
     {
         // perf-rule-5/8 exempt: all SK* allocs below run inside SKPictureRecorder (one-time per dirty rebuild)
@@ -520,16 +443,6 @@ public partial class Engine : Form
     private static SKColor ToSkColor(Color color)
     {
         return new SKColor(color.R, color.G, color.B, color.A);
-    }
-
-    private static double TicksToMilliseconds(long ticks)
-    {
-        return ticks * 1000.0 / Stopwatch.Frequency;
-    }
-
-    private static void UpdateStageEma(ref double stored, double sample)
-    {
-        stored = stored * (1.0 - StageEmaAlpha) + sample * StageEmaAlpha;
     }
 
     private void DrawStatsPanel(SKCanvas canvas)
@@ -784,7 +697,7 @@ public partial class Engine : Form
         if (_antsRenderer.DrawAllColonies(canvas, colonies))
         {
             long antEndTicks = Stopwatch.GetTimestamp();
-            UpdateStageEma(ref _antStageMs, TicksToMilliseconds(antEndTicks - antStartTicks));
+            _hudRenderer.ReportAntStageTicks(antEndTicks - antStartTicks);
         }
 
         _placement.DrawGhost(canvas, _world);
@@ -816,7 +729,7 @@ public partial class Engine : Form
             canvas.DrawPicture(_buttonsPicture);
         }
 
-        canvas.DrawPicture(_hudPicture);
+        _hudRenderer.Draw(canvas);
     }
 
     protected override void Dispose(bool disposing)

@@ -567,3 +567,48 @@ fewer texture upload).
 
 Scope: planned for FASE 5 sprint after FASE 4 completion.
 Discovered: 2026-04-19 during fase-4.8 OverlayRenderer extract.
+
+## EMA reset on map-switch (cosmetic)
+
+Location: `Engine/HudRenderer.cs` (fase-4.9) — `_simStageMs` and
+`_antStageMs` persist across map reloads.
+
+After a map-switch, HUD still shows decaying EMA values from the
+previous map for ~20-40 frames before converging to the new map's
+timing. Cosmetic only — no functional impact.
+
+Fix direction: expose `HudRenderer.ResetStageEmas()` that zeroes both
+EMAs, and call it from the MapLoader reload path in Engine. Also
+consider resetting `_framesThisSecond` + `_fps` so the FPS display
+also snaps cleanly.
+
+Scope: low-priority cosmetic polish. Candidate to bundle with the
+fase-4.10 StatsPanelRenderer extract (StatsRenderer has its own
+per-colony graph buffers that also cross-contaminate on map-switch).
+Discovered: 2026-04-19 during fase-4.9 HudRenderer extract.
+
+## HUD rebuild frequency observation (fase-4.10 context)
+
+Location: `Engine/HudRenderer.cs` — `HudUpdateIntervalMs = 50` (20 Hz).
+
+Observation: HUD-rebuild itself is cheap (~30-50μs per call: one
+SKPictureRecorder + 8 DrawText + 1 DrawWithBorder). At 20 Hz that
+is ~0.6-1.0 ms/sec = 0.06-0.1% CPU — negligible.
+
+The real cost driver is the COUPLED stats rebuild in Engine.Tick:
+`if (_hudRenderer.MaybeRebuild()) { RecordStatsPicture(); }`.
+`RecordStatsPicture()` is significantly heavier (per-colony graph
+rendering, many more DrawText calls) and currently rebuilds at the
+same 20 Hz cadence as HUD.
+
+Fix direction: fase-4.10 StatsPanelRenderer extract should give
+stats-rebuild its own throttle stopwatch with a slower cadence (e.g.
+4-5 Hz = 200-250ms interval). Stats visuals change on a slower scale
+than HUD (colony counts, role distribution) — no user-visible loss.
+
+Expected win: 70-85% reduction in stats-rebuild CPU during steady
+state (from ~20 Hz down to ~4-5 Hz).
+
+Scope: planned for fase-4.10 StatsPanelRenderer extract as a natural
+byproduct of the decoupling.
+Discovered: 2026-04-19 during fase-4.9 HudRenderer extract.
