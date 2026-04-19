@@ -15,9 +15,6 @@ public partial class Engine : Form
     private const int ButtonWidth = 140;
     private const int ButtonPadding = 8;
     private const float FitMarginPx = 40f;
-    private const float FoodGreenR = 34f / 255f;
-    private const float FoodGreenG = 197f / 255f;
-    private const float FoodGreenB = 94f / 255f;
     private const float PheromoneOverlayCutoff = 0.03f;
     private const float PheromoneOverlayMaxAlpha = 160f;
     private const int StatsPanelWidth = 260;
@@ -71,11 +68,7 @@ public partial class Engine : Form
     private UiTopBar _topBar = null!;
     private UiStartOverlay _startOverlay = null!;
     private WorldRenderer _worldRenderer = null!;
-    private SKRect[] _antBodySprites = Array.Empty<SKRect>();
-    private SKRotationScaleMatrix[] _antBodyTransforms = Array.Empty<SKRotationScaleMatrix>();
-    private SKPoint[] _antDotPoints = Array.Empty<SKPoint>();
-    private SKColorFilter? _antBodyColorFilter;
-    private uint _antBodyColorFilterCachedColor;
+    private AntsRenderer _antsRenderer = null!;
     private SKFontMetrics _textMetrics;
     private float _textHeight;
     private readonly Stopwatch _hudStopwatch = new Stopwatch();
@@ -148,6 +141,7 @@ public partial class Engine : Form
         _hudStopwatch.Start();
         RecordHudPicture();
         RecordStatsPicture();
+        _antsRenderer = Own(new AntsRenderer(_paints, _camera));
         _worldRenderer = Own(new WorldRenderer(() => _world, _camera, _foodSkColor));
         _worldRenderer.Rebuild();
         RecordTopBarPicture();
@@ -548,126 +542,6 @@ public partial class Engine : Form
         stored = stored * (1.0 - StageEmaAlpha) + sample * StageEmaAlpha;
     }
 
-    private void DrawAnts(SKCanvas canvas, Colony colony)
-    {
-        List<Ant> antsList = colony.AntsList;
-        int antCount = antsList.Count;
-        if (antCount == 0)
-        {
-            return;
-        }
-
-        SKColor colonyColor = colony.CachedSkColor;
-        EnsureAntBuffersCapacity(antCount);
-
-        Span<Ant> antsSpan = CollectionsMarshal.AsSpan(antsList);
-        SKRect[] frameRects = AntRenderer.FrameSpriteRects;
-        SKRect[] frameRectsFood = AntRenderer.FrameSpriteRectsWithFood;
-        SKRect[] bodySprites = _antBodySprites;
-        SKRotationScaleMatrix[] bodyTransforms = _antBodyTransforms;
-
-        const float invSup = AntRenderer.AtlasInverseSupersample;
-        const float anchor = AntRenderer.AtlasAnchor;
-
-        for (int i = 0; i < antCount; i++)
-        {
-            Ant ant = antsSpan[i];
-            float centerX = ant.X * CellSize;
-            float centerY = ant.Y * CellSize;
-
-            if (ant.LungeTimer > 0f)
-            {
-                float t = ant.LungeTimer / CombatTuning.LungeDuration;
-                float offset = t > 0.5f ? (1f - t) * 2f : t * 2f;
-                float lungePixels = offset * CombatTuning.LungeDistance * CellSize;
-                centerX += ant.LungeDirX * lungePixels;
-                centerY += ant.LungeDirY * lungePixels;
-            }
-
-            float heading = ant.Heading;
-            float headingCos = (float)Math.Cos(heading);
-            float headingSin = (float)Math.Sin(heading);
-            float scale = invSup * ant.Role.VisualScale;
-            float scos = headingCos * scale;
-            float ssin = headingSin * scale;
-            float tx = centerX - scos * anchor + ssin * anchor;
-            float ty = centerY - ssin * anchor - scos * anchor;
-            bodyTransforms[i] = new SKRotationScaleMatrix(scos, ssin, tx, ty);
-
-            int frameIndex = AntRenderer.GetFrameIndex(ant.StridePhase);
-            bool hasFood = ant.CarryingFood > 0;
-            bodySprites[i] = hasFood ? frameRectsFood[frameIndex] : frameRects[frameIndex];
-        }
-
-        ApplyBodyTint(colonyColor);
-        canvas.DrawAtlas(AntRenderer.BodyAtlasImage, _antBodySprites, _antBodyTransforms, _paints.AntPaint);
-    }
-
-    private void DrawAntDots(SKCanvas canvas, Colony colony)
-    {
-        List<Ant> antsList = colony.AntsList;
-        int antCount = antsList.Count;
-        if (antCount == 0) return;
-
-        if (_antDotPoints.Length != antCount)
-        {
-            _antDotPoints = new SKPoint[antCount];
-        }
-
-        Span<Ant> antsSpan = CollectionsMarshal.AsSpan(antsList);
-        for (int i = 0; i < antCount; i++)
-        {
-            _antDotPoints[i] = new SKPoint(antsSpan[i].X * CellSize, antsSpan[i].Y * CellSize);
-        }
-
-        float dotDiameter = Math.Max(3f, CellSize * 0.6f);
-
-        _paints.SharedFill.Color = colony.CachedSkColor;
-        _paints.SharedFill.StrokeCap = SKStrokeCap.Round;
-        _paints.SharedFill.StrokeWidth = dotDiameter;
-        canvas.DrawPoints(SKPointMode.Points, _antDotPoints, _paints.SharedFill);
-        _paints.SharedFill.StrokeCap = SKStrokeCap.Butt;
-    }
-
-    private void ApplyBodyTint(SKColor colonyColor)
-    {
-        uint packedColor = (uint)colonyColor;
-        if (_antBodyColorFilter != null && _antBodyColorFilterCachedColor == packedColor)
-        {
-            return;
-        }
-        _antBodyColorFilter?.Dispose();
-
-        float colR = colonyColor.Red / 255f;
-        float colG = colonyColor.Green / 255f;
-        float colB = colonyColor.Blue / 255f;
-
-        float[] matrix = new float[]
-        {
-            FoodGreenR, colR - FoodGreenR, 0f, 0f, 0f,
-            FoodGreenG, colG - FoodGreenG, 0f, 0f, 0f,
-            FoodGreenB, colB - FoodGreenB, 0f, 0f, 0f,
-            0f,         0f,                0f, 1f, 0f
-        };
-
-        _antBodyColorFilter = SKColorFilter.CreateColorMatrix(matrix);
-        _antBodyColorFilterCachedColor = packedColor;
-        _paints.AntPaint.ColorFilter = _antBodyColorFilter;
-    }
-
-    private void EnsureAntBuffersCapacity(int antCount)
-    {
-        if (_antBodyTransforms.Length != antCount)
-        {
-            _antBodyTransforms = new SKRotationScaleMatrix[antCount];
-        }
-        if (_antBodySprites.Length != antCount)
-        {
-            _antBodySprites = new SKRect[antCount];
-        }
-    }
-
-
     private void DrawPheromoneOverlay(SKCanvas canvas)
     {
         IReadOnlyList<Colony> colonies = _world.Colonies;
@@ -1064,30 +938,11 @@ public partial class Engine : Form
         _worldRenderer.DrawFoodNestsAndGridLines(canvas);
 
         IReadOnlyList<Colony> colonies = _world.Colonies;
-        int colonyCount = colonies.Count;
-        if (colonyCount > 0)
+        long antStartTicks = Stopwatch.GetTimestamp();
+        if (_antsRenderer.DrawAllColonies(canvas, colonies))
         {
-            bool hasAnyAnts = false;
-            for (int i = 0; i < colonyCount; i++)
-            {
-                if (colonies[i].AntsList.Count > 0) { hasAnyAnts = true; break; }
-            }
-
-            if (hasAnyAnts)
-            {
-                long antStartTicks = Stopwatch.GetTimestamp();
-                bool drawAsDots = _camera.Zoom < 0.5f;
-                for (int i = 0; i < colonyCount; i++)
-                {
-                    Colony colony = colonies[i];
-                    if (drawAsDots)
-                        DrawAntDots(canvas, colony);
-                    else
-                        DrawAnts(canvas, colony);
-                }
-                long antEndTicks = Stopwatch.GetTimestamp();
-                UpdateStageEma(ref _antStageMs, TicksToMilliseconds(antEndTicks - antStartTicks));
-            }
+            long antEndTicks = Stopwatch.GetTimestamp();
+            UpdateStageEma(ref _antStageMs, TicksToMilliseconds(antEndTicks - antStartTicks));
         }
 
         _placement.DrawGhost(canvas, _world);
@@ -1127,8 +982,6 @@ public partial class Engine : Form
         if (disposing)
         {
             _startOverlay?.Dispose();
-            _antBodyColorFilter?.Dispose();
-            _antBodyColorFilter = null;
 
             for (int i = _ownedDisposables.Count - 1; i >= 0; i--)
             {

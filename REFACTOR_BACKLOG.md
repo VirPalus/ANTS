@@ -440,3 +440,41 @@ WorldRenderer. Consolidate in RenderConstants.cs in fase-4.13 cleanup.
 
 Scope: deferred to fase-4.13 cleanup.
 Discovered: 2026-04-19 during fase-4.6 WorldRenderer extract.
+
+## Shared paint cross-mutation — AntPaint.ColorFilter
+
+Location: `Engine/AntsRenderer.cs` (mutates `PaintCache.AntPaint.ColorFilter`
+inside `ApplyBodyTint`) (fase-4.7).
+
+Shared paint cross-mutation: AntsRenderer exclusively mutates
+PaintCache.AntPaint.ColorFilter. If future code adds another mutator,
+undefined behavior possible. Consider per-renderer paint instances in
+fase-4.13 or later.
+
+Scope: deferred to fase-4.13 or later.
+Discovered: 2026-04-19 during fase-4.7 AntsRenderer extract.
+
+## SharedFill mutation without try/finally — DrawAntDots
+
+Location: `Engine/AntsRenderer.cs::DrawAntDots` (fase-4.7).
+
+DrawAntDots mutates SharedFill.StrokeCap/StrokeWidth and resets at end.
+If exception thrown mid-function, shared paint stays in modified state.
+Defensive try/finally deferred - low-risk path.
+
+Scope: deferred.
+Discovered: 2026-04-19 during fase-4.7 AntsRenderer extract.
+
+## Naming ambiguity: AntRenderer vs AntsRenderer
+
+Location: `Engine/AntRenderer.cs` (static, sprite atlas) and
+`Engine/AntsRenderer.cs` (instance, rendering logic) (fase-4.7).
+
+Naming ambiguity: AntRenderer.cs (static, sprite atlas) vs
+AntsRenderer.cs (instance, rendering logic). Visually near-identical
+names cause confusion in file explorer. Consider renaming in fase-4.13:
+- AntRenderer.cs -> AntSpriteAtlas.cs (describes what it contains)
+- AntsRenderer.cs -> AntRenderer.cs (single, primary renderer)
+
+Scope: deferred to fase-4.13 cleanup.
+Discovered: 2026-04-19 during fase-4.7 AntsRenderer extract.
