@@ -115,12 +115,7 @@ public partial class Engine : Form
     private int _frameCap = 10000;
     private long _ticksPerFrame;
     private long _nextFrameTicks;
-    private long _ticksPerSimStep;
-    private long _simAccumulatorTicks;
-    private long _lastSimTimestamp;
-    private bool _paused;
-    private double _speedMultiplier = 1.0;
-    private static readonly double[] SpeedChoices = new double[] { 1.0, 2.0, 5.0, 10.0 };
+    private SimDriver _sim = null!;
     private SKColor _foodSkColor;
     private readonly List<IDisposable> _ownedDisposables = new List<IDisposable>();
 
@@ -148,19 +143,21 @@ public partial class Engine : Form
         Controls.Add(_skControl);
         KeyPreview = true;
 
-        _topBar = new UiTopBar(SpeedChoices, () => _paused, () => _speedMultiplier, TogglePause, SetSpeed);
+        InitializeWorld();
+        _sim = new SimDriver(_world);
+
+        _topBar = new UiTopBar(SimDriver.SpeedChoices, () => _sim.IsPaused, () => _sim.Speed, OnPauseToggled, OnSpeedChanged);
         _startOverlay = new UiStartOverlay(OnStartOverlayPick);
         string mapsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Maps");
         _startOverlay.Scan(mapsDir, 180);
 
-        InitializeWorld();
         RecalculateLayout();
         _camera.FitWorld(_world.Width * CellSize, _world.Height * CellSize, ClientSize.Width, ClientSize.Height, FitMarginPx);
         _lastPanTicks = Stopwatch.GetTimestamp();
 
         if (_startOverlay.Entries.Count > 0)
         {
-            _paused = true;
+            _sim.TogglePause();
         }
         else
         {
@@ -175,8 +172,6 @@ public partial class Engine : Form
         RecordNestsPicture();
         RecordTopBarPicture();
         UpdateFrameCapTiming();
-        _ticksPerSimStep = Stopwatch.Frequency / World.SimHz;
-        _lastSimTimestamp = Stopwatch.GetTimestamp();
         Application.Idle += OnApplicationIdle;
     }
 
@@ -292,6 +287,7 @@ public partial class Engine : Form
     {
         MapDefinition map = MapLoader.Load(entry.Path);
         _world = new World(map.Width, map.Height);
+        _sim.SetWorld(_world);
         _world.ApplyMapLayout(map);
 
         for (int i = 0; i < map.ColonySeeds.Count; i++)
@@ -428,23 +424,7 @@ public partial class Engine : Form
         }
 
         long simStartTicks = Stopwatch.GetTimestamp();
-        long simDeltaTicks = simStartTicks - _lastSimTimestamp;
-        _lastSimTimestamp = simStartTicks;
-
-        if (_paused)
-        {
-            _simAccumulatorTicks = 0;
-        }
-        else
-        {
-            long scaledDelta = (long)(simDeltaTicks * _speedMultiplier);
-            _simAccumulatorTicks += scaledDelta;
-            while (_simAccumulatorTicks >= _ticksPerSimStep)
-            {
-                _world.Update();
-                _simAccumulatorTicks -= _ticksPerSimStep;
-            }
-        }
+        _sim.Advance();
         long simEndTicks = Stopwatch.GetTimestamp();
         UpdateStageEma(ref _simStageMs, TicksToMilliseconds(simEndTicks - simStartTicks));
 
@@ -528,22 +508,17 @@ public partial class Engine : Form
         return speed.ToString("0.##", CultureInfo.InvariantCulture) + "x";
     }
 
-    private void TogglePause()
+    private void OnPauseToggled()
     {
-        _paused = !_paused;
+        _sim.TogglePause();
         _topBar.Layout(ClientSize.Width);
         _topBar.CacheTextPositions(_paints.SharedText, _textMetrics, _textHeight);
         _topBarDirty = true;
     }
 
-    private void SetSpeed(double speed)
+    private void OnSpeedChanged(double speed)
     {
-        if (Math.Abs(_speedMultiplier - speed) < 0.001)
-        {
-            return;
-        }
-        _speedMultiplier = speed;
-        _simAccumulatorTicks = 0;
+        _sim.SetSpeed(speed);
         _topBarDirty = true;
     }
 
@@ -949,7 +924,7 @@ public partial class Engine : Form
 
         if (e.KeyCode == Keys.Space)
         {
-            TogglePause();
+            OnPauseToggled();
             e.Handled = true;
             return;
         }
